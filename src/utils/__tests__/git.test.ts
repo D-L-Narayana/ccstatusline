@@ -39,6 +39,7 @@ const mockExecFileSync = execFileSync as unknown as {
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_USERPROFILE = process.env.USERPROFILE;
+const ORIGINAL_CACHE_DIR = process.env.CCSTATUSLINE_CACHE_DIR;
 const tempPaths: string[] = [];
 
 function useTempHome(): string {
@@ -48,6 +49,13 @@ function useTempHome(): string {
     process.env.USERPROFILE = home;
     vi.spyOn(os, 'homedir').mockReturnValue(home);
     return home;
+}
+
+function useTempCacheDir(): string {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-git-cache-'));
+    tempPaths.push(cacheDir);
+    process.env.CCSTATUSLINE_CACHE_DIR = cacheDir;
+    return cacheDir;
 }
 
 function createGitRepo(): { root: string; headPath: string; indexPath: string } {
@@ -99,6 +107,11 @@ describe('git utils', () => {
             delete process.env.USERPROFILE;
         } else {
             process.env.USERPROFILE = ORIGINAL_USERPROFILE;
+        }
+        if (ORIGINAL_CACHE_DIR === undefined) {
+            delete process.env.CCSTATUSLINE_CACHE_DIR;
+        } else {
+            process.env.CCSTATUSLINE_CACHE_DIR = ORIGINAL_CACHE_DIR;
         }
 
         while (tempPaths.length > 0) {
@@ -325,6 +338,26 @@ describe('git utils', () => {
             expect(fs.statSync(cachePath).isDirectory()).toBe(true);
             const cacheDir = path.dirname(cachePath);
             expect(fs.readdirSync(cacheDir).filter(name => name.endsWith('.tmp'))).toEqual([]);
+        });
+
+        it('persists the cache under CCSTATUSLINE_CACHE_DIR instead of the home directory when it is set', () => {
+            vi.spyOn(Date, 'now').mockReturnValue(1000);
+            const home = useTempHome();
+            const cacheDir = useTempCacheDir();
+            const { root } = createGitRepo();
+            const context: RenderContext = { data: { cwd: root }, gitCacheTtlSeconds: 5 };
+            mockExecFileSync.mockReturnValueOnce('feature/isolated\n');
+
+            expect(runGit('symbolic-ref --short HEAD', context)).toBe('feature/isolated');
+
+            const overrideCacheDir = path.join(cacheDir, 'git-cache');
+            expect(fs.existsSync(overrideCacheDir)).toBe(true);
+            expect(fs.readdirSync(overrideCacheDir).filter(file => /^git-[a-f0-9]+\.json$/.test(file))).toHaveLength(1);
+            expect(fs.existsSync(path.join(home, '.cache', 'ccstatusline'))).toBe(false);
+
+            clearGitCache();
+            expect(runGit('symbolic-ref --short HEAD', context)).toBe('feature/isolated');
+            expect(mockExecFileSync.mock.calls).toHaveLength(1);
         });
     });
 

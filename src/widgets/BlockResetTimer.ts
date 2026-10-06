@@ -1,5 +1,3 @@
-import type React from 'react';
-
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
@@ -7,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     formatPercent,
     resolveNumberFormat
@@ -24,13 +22,13 @@ import {
 import { isHidden } from './shared/hideable';
 import {
     LOCALE_EDITOR_ACTION,
-    renderUsageLocaleEditor
+    getUsageLocaleEditorSpec
 } from './shared/locale-editor';
 import { makeTimerProgressBar } from './shared/progress-bar';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
     TIMEZONE_EDITOR_ACTION,
-    renderUsageTimezoneEditor
+    getUsageTimezoneEditorSpec
 } from './shared/timezone-editor';
 import {
     USAGE_NO_DATA_HIDEABLE_STATE,
@@ -189,13 +187,13 @@ export class BlockResetTimerWidget implements Widget {
         });
     }
 
-    renderEditor(props: WidgetEditorProps): React.ReactElement | null {
-        if (props.action === LOCALE_EDITOR_ACTION) {
-            return renderUsageLocaleEditor(props);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action === LOCALE_EDITOR_ACTION) {
+            return getUsageLocaleEditorSpec(item);
         }
 
-        if (props.action === TIMEZONE_EDITOR_ACTION) {
-            return renderUsageTimezoneEditor(props);
+        if (action === TIMEZONE_EDITOR_ACTION) {
+            return getUsageTimezoneEditorSpec(item);
         }
 
         return null;

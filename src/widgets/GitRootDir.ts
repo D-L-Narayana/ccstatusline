@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     isInsideGitWorkTree,
     runGit
@@ -27,9 +27,9 @@ import {
 import {
     MAX_WIDTH_ACTION,
     applyMaxWidth,
+    getMaxWidthEditorSpec,
     getMaxWidthKeybind,
-    getMaxWidthModifier,
-    renderMaxWidthEditor
+    getMaxWidthModifier
 } from './shared/max-width';
 import { isMetadataFlagEnabled } from './shared/metadata';
 
@@ -117,10 +117,11 @@ export class GitRootDirWidget implements Widget {
         ];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        if (props.action === MAX_WIDTH_ACTION) {
-            return renderMaxWidthEditor(props);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action === MAX_WIDTH_ACTION) {
+            return getMaxWidthEditorSpec(item);
         }
+
         return null;
     }
 

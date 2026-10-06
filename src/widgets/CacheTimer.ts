@@ -7,9 +7,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 
 import { CACHE_EMPTY_HIDEABLE_STATE } from './shared/cache-scope';
 import { makeModifierText } from './shared/editor-display';
@@ -17,9 +17,10 @@ import { isHidden } from './shared/hideable';
 import { removeMetadataKeys } from './shared/metadata';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     getSlotSymbol,
     getSymbolKeybind,
-    renderSymbolSlotsEditor,
+    getSymbolSlotsEditorSpec,
     type SymbolSlot
 } from './shared/symbol-override';
 
@@ -300,8 +301,12 @@ export class CacheTimerWidget implements Widget {
         ];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolSlotsEditor(props, SYMBOL_SLOTS);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolSlotsEditorSpec(item, SYMBOL_SLOTS);
     }
 
     supportsRawValue(): boolean { return true; }

@@ -11,7 +11,32 @@ import {
 import type { RenderContext } from '../../types/RenderContext';
 import type { Settings } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import type {
+    NumberEditorSpec,
+    SymbolSlotsEditorSpec,
+    WidgetEditorSpec
+} from '../../types/WidgetEditorSpec';
 import { CurrentWorkingDirWidget } from '../CurrentWorkingDir';
+import {
+    SYMBOL_OVERRIDE_ACTION,
+    getSymbolOverrideEditorSpec
+} from '../shared/symbol-override';
+
+function expectNumberSpec(spec: WidgetEditorSpec | null): NumberEditorSpec {
+    expect(spec?.kind).toBe('number');
+    if (spec?.kind !== 'number') {
+        throw new Error('expected a number editor spec');
+    }
+    return spec;
+}
+
+function expectSymbolSlotsSpec(spec: WidgetEditorSpec | null): SymbolSlotsEditorSpec {
+    expect(spec?.kind).toBe('symbol-slots');
+    if (spec?.kind !== 'symbol-slots') {
+        throw new Error('expected a symbol-slots editor spec');
+    }
+    return spec;
+}
 
 describe('CurrentWorkingDirWidget', () => {
     const widget = new CurrentWorkingDirWidget();
@@ -258,6 +283,48 @@ describe('CurrentWorkingDirWidget', () => {
             const item = createItem(undefined, true, '📁');
             const result = widget.render(item, createContext(undefined, true), defaultSettings);
             expect(result).toBe('📁 /Users/example/Documents/Projects/my-project');
+        });
+    });
+
+    describe('getEditorSpec', () => {
+        it('returns null for actions handled directly or unknown', () => {
+            expect(widget.getEditorSpec(createItem(), 'toggle-abbreviate-home')).toBeNull();
+            expect(widget.getEditorSpec(createItem(), 'toggle-fish-style')).toBeNull();
+            expect(widget.getEditorSpec(createItem(), 'unknown-action')).toBeNull();
+        });
+
+        it('describes the segments editor as a number spec', () => {
+            const spec = expectNumberSpec(widget.getEditorSpec(createItem({ segments: '2' }), 'edit-segments'));
+
+            expect(spec.prompt).toBe('Enter number of segments to display (blank for full path): ');
+            expect(spec.initialValue).toBe('2');
+            expect(expectNumberSpec(widget.getEditorSpec(createItem(), 'edit-segments')).initialValue).toBe('');
+        });
+
+        it('stores the segment count on commit and clears it for blank or invalid input', () => {
+            const item = createItem({ abbreviateHome: 'true', segments: '3' });
+            const spec = expectNumberSpec(widget.getEditorSpec(item, 'edit-segments'));
+
+            expect(spec.commit(item, 2).metadata).toEqual({ abbreviateHome: 'true', segments: '2' });
+            expect(spec.commit(item, null).metadata).toEqual({ abbreviateHome: 'true' });
+            expect(spec.commit(item, 0).metadata).toEqual({ abbreviateHome: 'true' });
+
+            // With nothing else stored, the metadata object itself goes away
+            const segmentsOnly = createItem({ segments: '3' });
+            const cleared = expectNumberSpec(widget.getEditorSpec(segmentsOnly, 'edit-segments')).commit(segmentsOnly, null);
+            expect(cleared.metadata).toBeUndefined();
+            expect(cleared).toEqual({ ...segmentsOnly, metadata: undefined });
+        });
+
+        it('delegates the glyph action to the shared symbol-override spec with an empty default', () => {
+            const item = createItem(undefined, false, '📁');
+            const spec = expectSymbolSlotsSpec(widget.getEditorSpec(item, SYMBOL_OVERRIDE_ACTION));
+            const expected = getSymbolOverrideEditorSpec(item, '');
+
+            expect(spec.title).toBe(expected.title);
+            expect(spec.slots).toEqual(expected.slots);
+            expect(spec.slots.every(slot => slot.defaultSymbol === '')).toBe(true);
+            expect(spec.commit(item, ['★'])).toEqual(expected.commit(item, ['★']));
         });
     });
 });

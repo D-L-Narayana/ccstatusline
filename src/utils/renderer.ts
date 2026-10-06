@@ -20,7 +20,6 @@ import {
 import {
     applyLineGradient,
     applyLineGradientSegment,
-    getVisibleText,
     getVisibleWidth,
     stripSgrCodes,
     truncateStyledText
@@ -135,7 +134,7 @@ function renderPowerlineStatusLine(
     globalThemeColorOffset = 0,  // Starting theme color index for this line
     preRenderedWidgets: PreRenderedWidget[],  // Pre-rendered widgets for this line
     preCalculatedMaxWidths: number[]  // Pre-calculated max widths for alignment
-): string {
+): RenderResult {
     const powerlineConfig = settings.powerline as Record<string, unknown> | undefined;
     const config = powerlineConfig ?? {};
     const continueThemeAcrossLines = Boolean(config.continueThemeAcrossLines);
@@ -188,7 +187,7 @@ function renderPowerlineStatusLine(
     const FLEX_SENTINEL = '\x01FLEX_SEP\x01';
 
     if (filteredWidgets.length === 0)
-        return '';
+        return { line: '', wasTruncated: false };
 
     const detectedWidth = context.terminalWidth ?? getTerminalWidth();
 
@@ -346,7 +345,7 @@ function renderPowerlineStatusLine(
     }
 
     if (widgetElements.length === 0)
-        return '';
+        return { line: '', wasTruncated: false };
 
     const renderedElementIndexByOriginalIndex = new Map<number, number>();
     widgetElements.forEach((element, index) => {
@@ -727,15 +726,20 @@ function renderPowerlineStatusLine(
     // Reset colors at the end
     result += chalk.reset('');
 
-    // Handle truncation if terminal width is known
+    // Handle truncation if terminal width is known. The flag records whether
+    // the line was actually shortened, so content that legitimately contains
+    // an ellipsis is never mistaken for a truncated line.
+    let wasTruncated = false;
     if (terminalWidth && terminalWidth > 0) {
         const plainLength = getVisibleWidth(result);
         if (plainLength > terminalWidth) {
-            result = truncateStyledText(result, terminalWidth, { ellipsis: true });
+            const truncatedResult = truncateStyledText(result, terminalWidth, { ellipsis: true });
+            wasTruncated = truncatedResult !== result;
+            result = truncatedResult;
         }
     }
 
-    return result;
+    return { line: result, wasTruncated };
 }
 
 // Format separator with appropriate spacing
@@ -759,6 +763,7 @@ function isSpacingSeparator(widget: WidgetItem | undefined, defaultSeparator: st
 
 export interface RenderResult {
     line: string;
+    /** True when the line was shortened to fit the terminal width. */
     wasTruncated: boolean;
 }
 
@@ -999,6 +1004,10 @@ export function calculateMaxWidthsFromPreRendered(
     return maxWidths;
 }
 
+// Renders a status line and reports whether it had to be shortened to fit the
+// terminal width. The flag is set exactly where the line is truncated, so
+// widget content that contains '...' (for example a Current Working Dir with
+// segments) is never reported as truncation.
 export function renderStatusLineWithInfo(
     widgets: WidgetItem[],
     settings: Settings,
@@ -1006,10 +1015,7 @@ export function renderStatusLineWithInfo(
     preRenderedWidgets: PreRenderedWidget[],
     preCalculatedMaxWidths: number[]
 ): RenderResult {
-    const line = renderStatusLine(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
-    // Check if line contains the truncation ellipsis
-    const wasTruncated = getVisibleText(line).includes('...');
-    return { line, wasTruncated };
+    return renderStatusLineInternal(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
 }
 
 export function renderStatusLine(
@@ -1019,6 +1025,16 @@ export function renderStatusLine(
     preRenderedWidgets: PreRenderedWidget[],
     preCalculatedMaxWidths: number[]
 ): string {
+    return renderStatusLineInternal(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths).line;
+}
+
+function renderStatusLineInternal(
+    widgets: WidgetItem[],
+    settings: Settings,
+    context: RenderContext,
+    preRenderedWidgets: PreRenderedWidget[],
+    preCalculatedMaxWidths: number[]
+): RenderResult {
     // Force 24-bit color for non-preview statusline rendering
     // Chalk level is now set globally in ccstatusline.ts and tui.tsx
     // No need to override here
@@ -1212,7 +1228,7 @@ export function renderStatusLine(
     }
 
     if (elements.length === 0)
-        return '';
+        return { line: '', wasTruncated: false };
 
     // Remove trailing separators
     while (elements.length > 0 && elements[elements.length - 1]?.type === 'separator') {
@@ -1369,12 +1385,15 @@ export function renderStatusLine(
     // Truncate if the line exceeds the terminal width
     // Use terminalWidth if available (already accounts for flex mode adjustments), otherwise use detectedWidth
     const maxWidth = terminalWidth ?? detectedWidth;
+    let wasTruncated = false;
     if (maxWidth && maxWidth > 0) {
         // Remove ANSI escape codes to get actual length
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
-            statusLine = truncateStyledText(statusLine, maxWidth, { ellipsis: true });
+            const truncatedLine = truncateStyledText(statusLine, maxWidth, { ellipsis: true });
+            wasTruncated = truncatedLine !== statusLine;
+            statusLine = truncatedLine;
         }
     }
 
@@ -1388,5 +1407,5 @@ export function renderStatusLine(
     // reset at the true end.
     statusLine = maybeApplyForegroundGradient(statusLine, settings, colorLevel);
 
-    return statusLine;
+    return { line: statusLine, wasTruncated };
 }

@@ -4,6 +4,7 @@ import type {
     WidgetItem,
     WidgetItemType
 } from '../../../types/Widget';
+import type { WidgetEditorSpec } from '../../../types/WidgetEditorSpec';
 import { generateGuid } from '../../../utils/guid';
 import {
     CYCLE_NUMBER_STYLE_ACTION,
@@ -32,6 +33,8 @@ export interface CustomEditorWidgetState {
     widget: WidgetItem;
     impl: Widget;
     action?: string;
+    /** Present when the widget described its editor through getEditorSpec. */
+    spec?: WidgetEditorSpec;
 }
 
 export interface InputKey {
@@ -354,6 +357,23 @@ export interface HandleNormalInputModeArgs {
     getCustomKeybindsForWidget: (widgetImpl: Widget, widget: WidgetItem) => CustomKeybind[];
     setCustomEditorWidget: (state: CustomEditorWidgetState | null) => void;
     getUniqueBackgroundColor?: (insertIndex: number) => string | undefined;
+    /** Resolves widget implementations; defaults to the registry (injectable for tests). */
+    getWidgetImpl?: (type: WidgetItemType) => Widget | null;
+}
+
+// Opens the editor for a keybind action the widget did not handle inline.
+// Widgets describe their editors declaratively through getEditorSpec; an
+// action without a spec has no editor and is ignored.
+function openWidgetEditor(
+    widgetImpl: Widget,
+    widget: WidgetItem,
+    action: string,
+    setCustomEditorWidget: (state: CustomEditorWidgetState | null) => void
+): void {
+    const spec = widgetImpl.getEditorSpec?.(widget, action) ?? null;
+    if (spec) {
+        setCustomEditorWidget({ widget, impl: widgetImpl, action, spec });
+    }
 }
 
 export function handleNormalInputMode({
@@ -371,7 +391,8 @@ export function handleNormalInputMode({
     openWidgetPicker,
     getCustomKeybindsForWidget,
     setCustomEditorWidget,
-    getUniqueBackgroundColor
+    getUniqueBackgroundColor,
+    getWidgetImpl = getWidget
 }: HandleNormalInputModeArgs): void {
     if (key.upArrow && widgets.length > 0) {
         setSelectedIndex(selectedIndex - 1 < 0 ? widgets.length - 1 : selectedIndex - 1);
@@ -430,7 +451,7 @@ export function handleNormalInputMode({
     } else if (input === 'r' && widgets.length > 0) {
         const currentWidget = widgets[selectedIndex];
         if (currentWidget && currentWidget.type !== 'separator' && currentWidget.type !== 'flex-separator') {
-            const widgetImpl = getWidget(currentWidget.type);
+            const widgetImpl = getWidgetImpl(currentWidget.type);
             if (!widgetImpl?.supportsRawValue()) {
                 return;
             }
@@ -478,7 +499,7 @@ export function handleNormalInputMode({
     } else if (widgets.length > 0) {
         const currentWidget = widgets[selectedIndex];
         if (currentWidget && currentWidget.type !== 'separator' && currentWidget.type !== 'flex-separator') {
-            const widgetImpl = getWidget(currentWidget.type);
+            const widgetImpl = getWidgetImpl(currentWidget.type);
             if (!widgetImpl) {
                 return;
             }
@@ -501,17 +522,18 @@ export function handleNormalInputMode({
                     const newWidgets = [...widgets];
                     newWidgets[selectedIndex] = cycleNumberStyle(currentWidget);
                     onUpdate(newWidgets);
-                } else if (widgetImpl.handleEditorAction) {
-                    const updatedWidget = widgetImpl.handleEditorAction(matchedKeybind.action, currentWidget);
-                    if (updatedWidget) {
-                        const newWidgets = [...widgets];
-                        newWidgets[selectedIndex] = updatedWidget;
-                        onUpdate(newWidgets);
-                    } else if (widgetImpl.renderEditor) {
-                        setCustomEditorWidget({ widget: currentWidget, impl: widgetImpl, action: matchedKeybind.action });
-                    }
-                } else if (widgetImpl.renderEditor) {
-                    setCustomEditorWidget({ widget: currentWidget, impl: widgetImpl, action: matchedKeybind.action });
+                    return;
+                }
+
+                // Inline actions (toggles, cycles) update the item directly;
+                // anything the widget leaves unhandled opens its editor.
+                const updatedWidget = widgetImpl.handleEditorAction?.(matchedKeybind.action, currentWidget) ?? null;
+                if (updatedWidget) {
+                    const newWidgets = [...widgets];
+                    newWidgets[selectedIndex] = updatedWidget;
+                    onUpdate(newWidgets);
+                } else {
+                    openWidgetEditor(widgetImpl, currentWidget, matchedKeybind.action, setCustomEditorWidget);
                 }
             }
         }

@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     getGitConflictCount,
     isInsideGitWorkTree
@@ -19,9 +19,10 @@ import {
 } from './shared/hideable';
 import { removeMetadataKeys } from './shared/metadata';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     getSlotSymbol,
     getSymbolKeybind,
-    renderSymbolSlotsEditor,
+    getSymbolSlotsEditorSpec,
     type SymbolSlot
 } from './shared/symbol-override';
 
@@ -123,8 +124,12 @@ export class GitConflictsWidget implements Widget {
         ];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolSlotsEditor(props, [CONFLICT_SLOT, CLEAN_SLOT]);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolSlotsEditorSpec(item, [CONFLICT_SLOT, CLEAN_SLOT]);
     }
 
     getNumericValue(context: RenderContext, _item: WidgetItem): number | null {

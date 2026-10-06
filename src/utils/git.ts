@@ -1,10 +1,11 @@
 import { execFileSync } from 'child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { RenderContext } from '../types/RenderContext';
+
+import { getCacheDir } from './cache-dir';
 
 export interface GitChangeCounts {
     insertions: number;
@@ -48,10 +49,6 @@ const GIT_COMMAND_TIMEOUT_MS = 5_000;
 // In-process cache keeps cwd in the key; the persistent cache stores cwd once
 // at the file level and keys entries by command.
 const gitCommandCache = new Map<string, GitCacheEntry>();
-
-function getCacheDir(): string {
-    return path.join(os.homedir(), '.cache', 'ccstatusline');
-}
 
 function getCachePath(gitDir: string): string {
     const repoHash = createHash('sha256')

@@ -246,12 +246,30 @@ describe('GitRootDirWidget', () => {
         });
 
         it('should open the width editor for the width action', () => {
-            expect(widget.renderEditor({
-                widget: { id: 'git-root-dir', type: 'git-root-dir' },
-                onComplete: vi.fn(),
-                onCancel: vi.fn(),
-                action: 'edit-max-width'
-            })).not.toBeNull();
+            const item: WidgetItem = { id: 'git-root-dir', type: 'git-root-dir', maxWidth: 12 };
+
+            expect(typeof widget.getEditorSpec).toBe('function');
+
+            const spec = widget.getEditorSpec(item, 'edit-max-width');
+            expect(spec?.kind).toBe('number');
+            expect(spec).toMatchObject({ prompt: 'Enter max width (blank for no limit): ', initialValue: '12' });
+            expect(widget.getEditorSpec(item, 'toggle-link')).toBeNull();
+        });
+
+        it('should drop the width when the editor commits a blank value', () => {
+            const item: WidgetItem = {
+                id: 'git-root-dir',
+                type: 'git-root-dir',
+                maxWidth: 12,
+                metadata: { linkToIDE: 'vscode' }
+            };
+            const spec = widget.getEditorSpec(item, 'edit-max-width');
+            if (spec?.kind !== 'number') {
+                throw new Error('expected a number editor spec for the width action');
+            }
+
+            expect(spec.commit(item, null)).toEqual({ id: 'git-root-dir', type: 'git-root-dir', metadata: { linkToIDE: 'vscode' } });
+            expect(spec.commit(item, 8)).toEqual({ ...item, maxWidth: 8 });
         });
     });
 });

@@ -212,6 +212,18 @@ describe('GitBranchWidget', () => {
                 action: 'edit-max-width'
             });
         });
+
+        it('opens the width editor for the width action and the glyph editor otherwise', () => {
+            const branch = new GitBranchWidget();
+            const item: WidgetItem = { id: 'git-branch', type: 'git-branch', maxWidth: 12 };
+
+            expect(typeof branch.getEditorSpec).toBe('function');
+            expect(branch.getEditorSpec(item, 'edit-max-width')).toMatchObject({ kind: 'number', initialValue: '12' });
+            expect(branch.getEditorSpec(item, 'edit-symbol-override')).toMatchObject({
+                kind: 'symbol-slots',
+                slots: [{ id: 'character', label: 'Glyph', defaultSymbol: '⎇', initialValue: '⎇' }]
+            });
+        });
     });
 
     describe('toggle action', () => {

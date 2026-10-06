@@ -10,6 +10,7 @@ import type {
     Widget,
     WidgetItem
 } from '../../../../types/Widget';
+import type { WidgetEditorSpec } from '../../../../types/WidgetEditorSpec';
 import { getNumberFormatKeybind } from '../../../../utils/number-format';
 import type { WidgetCatalogEntry } from '../../../../utils/widgets';
 import {
@@ -1086,6 +1087,117 @@ describe('items-editor input handlers', () => {
             const onUpdate = vi.fn();
             pressPrecision([{ id: '1', type: 'custom-text' }], onUpdate);
 
+            expect(onUpdate).not.toHaveBeenCalled();
+        });
+    });
+
+    // Editors open from a widget's declarative spec; these use a fake widget
+    // (resolved through the injectable getWidgetImpl) so the dispatch rule is
+    // tested independently of which real widgets have been migrated.
+    describe('editor spec dispatch', () => {
+        const fakeItem: WidgetItem = { id: '1', type: 'fake-widget' };
+        const textSpec: WidgetEditorSpec = {
+            kind: 'text',
+            prompt: 'Enter label: ',
+            initialValue: '',
+            commit: (item, value) => ({ ...item, customText: value })
+        };
+
+        const createFakeWidget = (overrides: Partial<Widget> = {}): Widget => ({
+            getDefaultColor: () => 'white',
+            getDescription: () => 'Fake widget',
+            getDisplayName: () => 'Fake',
+            getCategory: () => 'Custom',
+            getEditorDisplay: () => ({ displayText: 'Fake' }),
+            render: () => null,
+            supportsRawValue: () => false,
+            supportsColors: () => true,
+            getCustomKeybinds: () => [{ key: 'e', label: '(e)dit', action: 'edit-label' }],
+            ...overrides
+        });
+
+        const pressEditKeybind = (
+            widgetImpl: Widget,
+            setCustomEditorWidget: (state: unknown) => void,
+            onUpdate: (widgets: WidgetItem[]) => void = vi.fn()
+        ) => {
+            handleNormalInputMode({
+                input: 'e',
+                key: {},
+                widgets: [fakeItem],
+                selectedIndex: 0,
+                separatorChars: ['|'],
+                onBack: vi.fn(),
+                onUpdate,
+                setSelectedIndex: vi.fn(),
+                setMoveMode: vi.fn(),
+                setShowClearConfirm: vi.fn(),
+                openWidgetPicker: vi.fn(),
+                getCustomKeybindsForWidget: (impl, widget) => impl.getCustomKeybinds ? impl.getCustomKeybinds(widget) : [],
+                setCustomEditorWidget,
+                getWidgetImpl: () => widgetImpl
+            });
+        };
+
+        it('opens the editor with the spec attached for a widget exposing only getEditorSpec', () => {
+            const getEditorSpec = vi.fn().mockReturnValue(textSpec);
+            const widgetImpl = createFakeWidget({ getEditorSpec });
+            const setCustomEditorWidget = vi.fn();
+
+            pressEditKeybind(widgetImpl, setCustomEditorWidget);
+
+            expect(getEditorSpec).toHaveBeenCalledWith(fakeItem, 'edit-label');
+            expect(setCustomEditorWidget).toHaveBeenCalledWith({
+                widget: fakeItem,
+                impl: widgetImpl,
+                action: 'edit-label',
+                spec: textSpec
+            });
+        });
+
+        it('applies handleEditorAction results without consulting getEditorSpec', () => {
+            const getEditorSpec = vi.fn().mockReturnValue(textSpec);
+            const widgetImpl = createFakeWidget({
+                getEditorSpec,
+                handleEditorAction: (action, item) => ({ ...item, metadata: { toggled: action } })
+            });
+            const setCustomEditorWidget = vi.fn();
+            const onUpdate = vi.fn();
+
+            pressEditKeybind(widgetImpl, setCustomEditorWidget, onUpdate);
+
+            expect(onUpdate).toHaveBeenCalledWith([{ ...fakeItem, metadata: { toggled: 'edit-label' } }]);
+            expect(getEditorSpec).not.toHaveBeenCalled();
+            expect(setCustomEditorWidget).not.toHaveBeenCalled();
+        });
+
+        it('opens the spec editor when handleEditorAction leaves the action unhandled', () => {
+            const widgetImpl = createFakeWidget({
+                getEditorSpec: () => textSpec,
+                handleEditorAction: () => null
+            });
+            const setCustomEditorWidget = vi.fn();
+            const onUpdate = vi.fn();
+
+            pressEditKeybind(widgetImpl, setCustomEditorWidget, onUpdate);
+
+            expect(onUpdate).not.toHaveBeenCalled();
+            expect(setCustomEditorWidget).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'edit-label',
+                spec: textSpec
+            }));
+        });
+
+        it('opens nothing when getEditorSpec returns null and no legacy editor exists', () => {
+            const getEditorSpec = vi.fn().mockReturnValue(null);
+            const widgetImpl = createFakeWidget({ getEditorSpec });
+            const setCustomEditorWidget = vi.fn();
+            const onUpdate = vi.fn();
+
+            pressEditKeybind(widgetImpl, setCustomEditorWidget, onUpdate);
+
+            expect(getEditorSpec).toHaveBeenCalledWith(fakeItem, 'edit-label');
+            expect(setCustomEditorWidget).not.toHaveBeenCalled();
             expect(onUpdate).not.toHaveBeenCalled();
         });
     });

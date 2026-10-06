@@ -10,7 +10,13 @@ import {
     applyImport,
     type ImportValidationResult
 } from '../../utils/config';
+import {
+    collectConfigRisks,
+    type ConfigRisk
+} from '../../utils/config-review';
+import { getWidget } from '../../utils/widgets';
 
+import { ConfirmDialog } from './ConfirmDialog';
 import {
     List,
     type ListEntry
@@ -26,6 +32,7 @@ interface ImportPreviewDialogProps {
 }
 
 type ImportMode = 'replace' | 'merge' | 'cancel';
+type ApplyMode = Exclude<ImportMode, 'cancel'>;
 
 const EXCLUDED_KEYS = new Set(['version', 'installation', 'updatemessage']);
 
@@ -46,9 +53,20 @@ export function getImportPreviewKeys(current: Settings, imported: Settings): (ke
 export function getImportPreviewSettings(
     current: Settings,
     validation: ValidImportResult,
-    mode: Exclude<ImportMode, 'cancel'>
+    mode: ApplyMode
 ): Settings {
     return applyImport(current, validation.data, mode, validation.presentKeys);
+}
+
+/** The confirmation shown before applying a config that runs shell commands. */
+export function getShellCommandWarning(count: number): string {
+    return `This configuration runs ${count} shell command(s) on every status line refresh. Apply anyway?`;
+}
+
+/** One review row per risk, e.g. `line 1 · Custom Command · git status`. */
+export function formatConfigRiskRow(risk: ConfigRisk): string {
+    const displayName = getWidget(risk.widgetType)?.getDisplayName() ?? risk.widgetType;
+    return `line ${risk.lineIndex + 1} · ${displayName} · ${risk.value}`;
 }
 
 function formatScalar(value: unknown): string {
@@ -138,9 +156,17 @@ export function ImportPreviewDialog({
     onApply,
     onCancel
 }: ImportPreviewDialogProps): React.JSX.Element {
-    const [previewMode, setPreviewMode] = useState<Exclude<ImportMode, 'cancel'>>('replace');
+    const [previewMode, setPreviewMode] = useState<ApplyMode>('replace');
+    // The list entry chosen when the confirmation opened, so the mode list
+    // re-highlights it after a declined confirmation. Only updated at select
+    // time: echoing every highlight change back into the list would make the
+    // parent and the list fight over the selection.
+    const [listSelection, setListSelection] = useState(0);
+    const [pendingMode, setPendingMode] = useState<ApplyMode | null>(null);
     const previewSettings = getImportPreviewSettings(currentSettings, validation, previewMode);
     const topLevelKeys = getImportPreviewKeys(currentSettings, previewSettings);
+    const risks = collectConfigRisks(previewSettings);
+    const shellCommandCount = risks.filter(risk => risk.kind === 'shell-command').length;
 
     const items: ListEntry<ImportMode>[] = [
         { label: 'Replace All', value: 'replace', description: 'Overwrite all settings with the imported config' },
@@ -149,12 +175,20 @@ export function ImportPreviewDialog({
         { label: 'Cancel', value: 'cancel' }
     ];
 
-    function handleSelect(value: ImportMode | 'back'): void {
+    function handleSelect(value: ImportMode | 'back', index: number): void {
         if (value === 'cancel' || value === 'back') {
             onCancel();
-        } else {
-            onApply(value);
+            return;
         }
+
+        if (shellCommandCount > 0) {
+            // Shell commands execute on every refresh: ask before applying.
+            setListSelection(index);
+            setPendingMode(value);
+            return;
+        }
+
+        onApply(value);
     }
 
     function handleSelectionChange(value: ImportMode | 'back'): void {
@@ -236,11 +270,47 @@ export function ImportPreviewDialog({
             <Box flexDirection='column'>
                 {diffRows}
             </Box>
-            <List
-                items={items}
-                onSelect={handleSelect}
-                onSelectionChange={handleSelectionChange}
-            />
+            {risks.length > 0 && (
+                <Box flexDirection='column' marginTop={1}>
+                    <Text bold color='yellow'>Review before applying</Text>
+                    <Text dimColor>Shell commands run on every status line refresh; links open when clicked in the terminal.</Text>
+                    {risks.map((risk, i) => (
+                        <Box key={i} marginLeft={2}>
+                            <Text
+                                color={risk.kind === 'shell-command' ? 'yellow' : undefined}
+                                dimColor={risk.kind === 'hyperlink'}
+                            >
+                                {formatConfigRiskRow(risk)}
+                            </Text>
+                        </Box>
+                    ))}
+                </Box>
+            )}
+            {pendingMode !== null && (
+                <Box flexDirection='column' marginTop={1}>
+                    <Text color='yellow'>{getShellCommandWarning(shellCommandCount)}</Text>
+                    <Box marginTop={1}>
+                        <ConfirmDialog
+                            inline={true}
+                            onConfirm={() => {
+                                setPendingMode(null);
+                                onApply(pendingMode);
+                            }}
+                            onCancel={() => {
+                                setPendingMode(null);
+                            }}
+                        />
+                    </Box>
+                </Box>
+            )}
+            {pendingMode === null && (
+                <List
+                    items={items}
+                    initialSelection={listSelection}
+                    onSelect={handleSelect}
+                    onSelectionChange={handleSelectionChange}
+                />
+            )}
         </Box>
     );
 }

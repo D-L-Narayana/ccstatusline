@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     getGitStatus,
     isInsideGitWorkTree
@@ -18,9 +18,10 @@ import {
     isHidden
 } from './shared/hideable';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     getSlotSymbol,
     getSymbolKeybind,
-    renderSymbolSlotsEditor,
+    getSymbolSlotsEditorSpec,
     type SymbolSlot
 } from './shared/symbol-override';
 
@@ -68,8 +69,12 @@ export class GitCleanStatusWidget implements Widget {
         return [getSymbolKeybind()];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolSlotsEditor(props, [CLEAN_SLOT, DIRTY_SLOT]);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolSlotsEditorSpec(item, [CLEAN_SLOT, DIRTY_SLOT]);
     }
 
     supportsRawValue(): boolean { return true; }

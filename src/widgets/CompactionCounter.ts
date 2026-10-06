@@ -9,9 +9,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import { ZERO_COMPACTION_STATS } from '../utils/compaction';
 import { formatTokens } from '../utils/format-tokens';
 import { resolveNumberFormat } from '../utils/number-format';
@@ -26,9 +26,10 @@ import {
     type NerdFontFormats
 } from './shared/metadata';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     getSlotSymbol,
     getSymbolKeybind,
-    renderSymbolSlotsEditor,
+    getSymbolSlotsEditorSpec,
     type SymbolSlot
 } from './shared/symbol-override';
 
@@ -271,8 +272,12 @@ export class CompactionCounterWidget implements Widget {
         return keybinds;
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolSlotsEditor(props, [RECLAIMED_SLOT]);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolSlotsEditorSpec(item, [RECLAIMED_SLOT]);
     }
 
     supportsRawValue(): boolean { return false; }

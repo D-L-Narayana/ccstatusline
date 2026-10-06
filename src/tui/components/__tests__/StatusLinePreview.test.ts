@@ -4,7 +4,8 @@ import React from 'react';
 import {
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import {
@@ -12,7 +13,10 @@ import {
     type Settings
 } from '../../../types/Settings';
 import type { WidgetItem } from '../../../types/Widget';
-import { getVisibleWidth } from '../../../utils/ansi';
+import {
+    getVisibleText,
+    getVisibleWidth
+} from '../../../utils/ansi';
 import { renderOsc8Link } from '../../../utils/hyperlink';
 import {
     StatusLinePreview,
@@ -63,6 +67,94 @@ function flushInk() {
         setTimeout(resolve, 25);
     });
 }
+
+interface PreviewRenderOptions {
+    lines: WidgetItem[][];
+    terminalWidth: number;
+    settings: Settings;
+    onTruncationChange?: (isTruncated: boolean) => void;
+}
+
+// Mounts the preview, waits for Ink to paint and returns the raw frame output.
+async function renderPreview(options: PreviewRenderOptions): Promise<string> {
+    const stdin = createMockStdin();
+    const stdout = createMockStdout();
+    const stderr = createMockStdout();
+    const instance = render(
+        React.createElement(StatusLinePreview, options),
+        {
+            stdin,
+            stdout,
+            stderr,
+            debug: true,
+            exitOnCtrlC: false,
+            patchConsole: false
+        }
+    );
+
+    try {
+        await flushInk();
+        return stdout.getOutput();
+    } finally {
+        instance.unmount();
+        instance.cleanup();
+        stdin.destroy();
+        stdout.destroy();
+        stderr.destroy();
+    }
+}
+
+function customText(id: string, text: string): WidgetItem {
+    return { id, type: 'custom-text', customText: text };
+}
+
+describe('StatusLinePreview render pipeline', () => {
+    it('skips blank lines without consuming separator slots, like the status line output', async () => {
+        // Powerline separators cycle per rendered slot. A first line whose
+        // visible text is blank is not printed by the status line, so it must
+        // not advance the cycle either: the second line keeps the ' ' glyph.
+        const settings: Settings = {
+            ...DEFAULT_SETTINGS,
+            colorLevel: 0,
+            powerline: {
+                ...DEFAULT_SETTINGS.powerline,
+                enabled: true,
+                separators: [' ', '>'],
+                separatorInvertBackground: [false, false]
+            }
+        };
+        const lines: WidgetItem[][] = [
+            [customText('pad1', ' '), customText('pad2', ' ')],
+            [customText('a', 'A'), customText('b', 'B')]
+        ];
+
+        const output = getVisibleText(await renderPreview({ lines, terminalWidth: 160, settings }));
+
+        expect(output).toContain('A B');
+        expect(output).not.toContain('A>B');
+    });
+
+    it('does not report truncation for content that merely contains an ellipsis', async () => {
+        const onTruncationChange = vi.fn();
+        const settings: Settings = { ...DEFAULT_SETTINGS, colorLevel: 0, flexMode: 'full' };
+        const lines: WidgetItem[][] = [[customText('cwd', 'cwd: .../project')]];
+
+        await renderPreview({ lines, terminalWidth: 160, settings, onTruncationChange });
+
+        expect(onTruncationChange).toHaveBeenCalledWith(false);
+        expect(onTruncationChange).not.toHaveBeenCalledWith(true);
+    });
+
+    it('reports truncation when a rendered line is wider than the terminal', async () => {
+        const onTruncationChange = vi.fn();
+        const settings: Settings = { ...DEFAULT_SETTINGS, colorLevel: 0, flexMode: 'full' };
+        const lines: WidgetItem[][] = [[customText('long', 'abcdefghijklmnopqrstuvwxyz1234567890')]];
+
+        await renderPreview({ lines, terminalWidth: 20, settings, onTruncationChange });
+
+        expect(onTruncationChange).toHaveBeenCalledWith(true);
+    });
+});
 
 describe('StatusLinePreview helpers', () => {
     it('strips OSC links and clamps preview lines to the terminal width', () => {

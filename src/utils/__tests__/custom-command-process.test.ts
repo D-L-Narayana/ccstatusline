@@ -80,18 +80,23 @@ afterAll(() => {
 
 for (const runtime of ['bun', 'node']) {
     describe(`custom command capture under ${runtime}`, () => {
-        function run(mode: string, options: { ttlSeconds?: number; timeoutMs?: number; argument?: string } = {}) {
+        function run(
+            mode: string,
+            options: { ttlSeconds?: number; timeoutMs?: number; argument?: string; sessionId?: string; env?: Record<string, string> } = {}
+        ) {
             const command = `"${runtime}" "${writerPath}" "${mode}" "${options.argument ?? ''}"`;
             const output = execFileSync(runtime, [probePath, JSON.stringify({
                 command,
                 input: '{"session_id":"capture-test","terminal_width":120}',
                 timeoutMs: options.timeoutMs ?? 1000,
-                ttlSeconds: options.ttlSeconds ?? 0
+                ttlSeconds: options.ttlSeconds ?? 0,
+                ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId })
             })], {
                 encoding: 'utf8',
                 timeout: 5000,
                 maxBuffer: 1024 * 1024,
-                stdio: ['ignore', 'pipe', 'pipe']
+                stdio: ['ignore', 'pipe', 'pipe'],
+                ...(options.env === undefined ? {} : { env: { ...process.env, ...options.env } })
             });
             return JSON.parse(output) as { result: CustomCommandResult; elapsed: number };
         }
@@ -132,6 +137,24 @@ for (const runtime of ['bun', 'node']) {
             const outputPath = path.join(tempRoot, `${runtime}-unrelated-output`);
             expect(run('file', { argument: outputPath }).result).toEqual({ status: 'ok', stdout: 'OK' });
             expect(fs.statSync(outputPath).size).toBe(4 * 1024 * 1024);
+        });
+
+        it('persists the shared cache under CCSTATUSLINE_CACHE_DIR', () => {
+            const home = path.join(tempRoot, `${runtime}-cache-home`);
+            const cacheDir = path.join(tempRoot, `${runtime}-cache-override`);
+            fs.mkdirSync(home, { recursive: true });
+
+            const result = run('stdin', {
+                ttlSeconds: 5,
+                sessionId: 'cache-dir-session',
+                env: { CCSTATUSLINE_CACHE_DIR: cacheDir, HOME: home, USERPROFILE: home }
+            });
+
+            expect(result.result).toEqual({ status: 'ok', stdout: '{"session_id":"capture-test","terminal_width":120}' });
+            const commandCacheDir = path.join(cacheDir, 'custom-command-cache');
+            expect(fs.existsSync(commandCacheDir)).toBe(true);
+            expect(fs.readdirSync(commandCacheDir).filter(file => /^cmd-[a-f0-9]+\.json$/.test(file))).toHaveLength(1);
+            expect(fs.existsSync(path.join(home, '.cache', 'ccstatusline'))).toBe(false);
         });
 
         it.skipIf(process.platform === 'win32')('returns successful output when a background job keeps stdout open', async () => {

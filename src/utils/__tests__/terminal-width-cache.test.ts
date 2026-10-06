@@ -1,10 +1,13 @@
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
     afterEach,
     beforeEach,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import type { WidthCacheDeps } from '../terminal-width-cache';
@@ -184,5 +187,49 @@ describe('terminal width cache', () => {
             writeCachedWidth('session-a', 209, throwing);
             expect(fs.existsSync(LOCK_PATH)).toBe(false);
         });
+    });
+});
+
+// These exercise the default (real filesystem) deps, so the cache lands
+// wherever the module resolves its directory at call time.
+describe('terminal width cache default location', () => {
+    let tempRoot: string;
+    let homeDir: string;
+    let originalCacheDir: string | undefined;
+
+    beforeEach(() => {
+        tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-width-cache-'));
+        homeDir = path.join(tempRoot, 'home');
+        originalCacheDir = process.env.CCSTATUSLINE_CACHE_DIR;
+        delete process.env.CCSTATUSLINE_CACHE_DIR;
+        vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        if (originalCacheDir === undefined) {
+            delete process.env.CCSTATUSLINE_CACHE_DIR;
+        } else {
+            process.env.CCSTATUSLINE_CACHE_DIR = originalCacheDir;
+        }
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+    });
+
+    it('stores the shared cache under CCSTATUSLINE_CACHE_DIR when it is set', () => {
+        const cacheDir = path.join(tempRoot, 'cache-override');
+        process.env.CCSTATUSLINE_CACHE_DIR = cacheDir;
+
+        writeCachedWidth('session-override', null);
+
+        expect(fs.existsSync(path.join(cacheDir, 'terminal-width.json'))).toBe(true);
+        expect(readCachedWidth('session-override', 5)).toEqual({ width: null });
+        expect(fs.existsSync(path.join(homeDir, '.cache', 'ccstatusline'))).toBe(false);
+    });
+
+    it('resolves the home directory location per call rather than at module load', () => {
+        writeCachedWidth('session-home', null);
+
+        expect(fs.existsSync(path.join(homeDir, '.cache', 'ccstatusline', 'terminal-width.json'))).toBe(true);
+        expect(readCachedWidth('session-home', 5)).toEqual({ width: null });
     });
 });

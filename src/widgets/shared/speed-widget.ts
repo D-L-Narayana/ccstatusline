@@ -1,10 +1,3 @@
-import {
-    Box,
-    Text,
-    useInput
-} from 'ink';
-import React, { useState } from 'react';
-
 import type { RenderContext } from '../../types/RenderContext';
 import type { Settings } from '../../types/Settings';
 import type { SpeedMetrics } from '../../types/SpeedMetrics';
@@ -12,10 +5,9 @@ import type {
     CustomKeybind,
     HideableState,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../../types/Widget';
-import { shouldInsertInput } from '../../utils/input-guards';
+import type { NumberEditorSpec } from '../../types/WidgetEditorSpec';
 import { resolveNumberFormat } from '../../utils/number-format';
 import {
     calculateInputSpeed,
@@ -27,6 +19,8 @@ import {
     DEFAULT_SPEED_WINDOW_SECONDS,
     MAX_SPEED_WINDOW_SECONDS,
     MIN_SPEED_WINDOW_SECONDS,
+    SPEED_WINDOW_METADATA_KEY,
+    clampSpeedWindowSeconds,
     getWidgetSpeedWindowSeconds,
     isWidgetSpeedWindowEnabled,
     withWidgetSpeedWindowSeconds
@@ -34,11 +28,12 @@ import {
 
 import { makeModifierText } from './editor-display';
 import { isHidden } from './hideable';
+import { removeMetadataKeys } from './metadata';
 import { formatRawOrLabeledValue } from './raw-or-labeled';
 
 export type SpeedWidgetKind = 'input' | 'output' | 'total';
 
-const WINDOW_EDITOR_ACTION = 'edit-window';
+export const SPEED_WINDOW_EDITOR_ACTION = 'edit-window';
 
 const NO_DATA_HIDEABLE_STATE: HideableState = { key: 'no-data', label: 'when there is no speed data (—)' };
 
@@ -148,66 +143,28 @@ export function getSpeedWidgetCustomKeybinds(): CustomKeybind[] {
     return [{
         key: 'w',
         label: '(w)indow',
-        action: WINDOW_EDITOR_ACTION
+        action: SPEED_WINDOW_EDITOR_ACTION
     }];
 }
 
-export function renderSpeedWidgetEditor(props: WidgetEditorProps): React.ReactElement {
-    return <SpeedWindowEditor {...props} />;
+// Out-of-range input is clamped rather than rejected. The default window (0 =
+// full-session average) is stored as the absence of the key, like the other
+// widget defaults, so clearing the window leaves no metadata behind.
+export function getSpeedWindowEditorSpec(item: WidgetItem): NumberEditorSpec {
+    return {
+        kind: 'number',
+        prompt: `Enter window in seconds (${MIN_SPEED_WINDOW_SECONDS}-${MAX_SPEED_WINDOW_SECONDS}): `,
+        initialValue: getWidgetSpeedWindowSeconds(item).toString(),
+        help: '0 disables window mode and averages the full session. Press Enter to save, ESC to cancel.',
+        min: MIN_SPEED_WINDOW_SECONDS,
+        max: MAX_SPEED_WINDOW_SECONDS,
+        commit: (current, value) => {
+            const seconds = clampSpeedWindowSeconds(value ?? DEFAULT_SPEED_WINDOW_SECONDS);
+            if (seconds === DEFAULT_SPEED_WINDOW_SECONDS) {
+                return removeMetadataKeys(current, [SPEED_WINDOW_METADATA_KEY]);
+            }
+
+            return withWidgetSpeedWindowSeconds(current, seconds);
+        }
+    };
 }
-
-const SpeedWindowEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel, action }) => {
-    const [windowInput, setWindowInput] = useState(getWidgetSpeedWindowSeconds(widget).toString());
-
-    useInput((input, key) => {
-        if (action !== WINDOW_EDITOR_ACTION) {
-            return;
-        }
-
-        if (key.return) {
-            const parsedWindow = Number.parseInt(windowInput, 10);
-            const nextWindow = Number.isFinite(parsedWindow)
-                ? parsedWindow
-                : DEFAULT_SPEED_WINDOW_SECONDS;
-
-            onComplete(withWidgetSpeedWindowSeconds(widget, nextWindow));
-            return;
-        }
-
-        if (key.escape) {
-            onCancel();
-            return;
-        }
-
-        if (key.backspace) {
-            setWindowInput(windowInput.slice(0, -1));
-            return;
-        }
-
-        if (shouldInsertInput(input, key) && /\d/.test(input)) {
-            setWindowInput(windowInput + input);
-        }
-    });
-
-    if (action !== WINDOW_EDITOR_ACTION) {
-        return <Text>Unknown editor mode</Text>;
-    }
-
-    return (
-        <Box flexDirection='column'>
-            <Box>
-                <Text>
-                    Enter window in seconds (
-                    {MIN_SPEED_WINDOW_SECONDS}
-                    -
-                    {MAX_SPEED_WINDOW_SECONDS}
-                    ):
-                    {' '}
-                </Text>
-                <Text>{windowInput}</Text>
-                <Text backgroundColor='gray' color='black'>{' '}</Text>
-            </Box>
-            <Text dimColor>0 disables window mode and averages the full session. Press Enter to save, ESC to cancel.</Text>
-        </Box>
-    );
-};

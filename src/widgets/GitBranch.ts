@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     isInsideGitWorkTree,
     runGit
@@ -29,15 +29,15 @@ import {
 import {
     MAX_WIDTH_ACTION,
     applyMaxWidth,
+    getMaxWidthEditorSpec,
     getMaxWidthKeybind,
-    getMaxWidthModifier,
-    renderMaxWidthEditor
+    getMaxWidthModifier
 } from './shared/max-width';
 import { isMetadataFlagEnabled } from './shared/metadata';
 import {
     formatSymbolPrefix,
     getSymbolKeybind,
-    renderSymbolOverrideEditor
+    getSymbolOverrideEditorSpec
 } from './shared/symbol-override';
 
 const DEFAULT_SYMBOL = '⎇';
@@ -144,11 +144,12 @@ export class GitBranchWidget implements Widget {
         ];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        if (props.action === MAX_WIDTH_ACTION) {
-            return renderMaxWidthEditor(props);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action === MAX_WIDTH_ACTION) {
+            return getMaxWidthEditorSpec(item);
         }
-        return renderSymbolOverrideEditor(props, DEFAULT_SYMBOL);
+
+        return getSymbolOverrideEditorSpec(item, DEFAULT_SYMBOL);
     }
 
     supportsRawValue(): boolean { return true; }

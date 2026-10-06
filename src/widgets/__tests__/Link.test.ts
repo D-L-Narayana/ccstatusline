@@ -7,6 +7,10 @@ import {
 import type { RenderContext } from '../../types/RenderContext';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import type {
+    TextEditorSpec,
+    WidgetEditorSpec
+} from '../../types/WidgetEditorSpec';
 import { LinkWidget } from '../Link';
 
 function renderLink(
@@ -24,6 +28,14 @@ function renderLink(
     const context: RenderContext = { isPreview };
 
     return widget.render(item, context, DEFAULT_SETTINGS);
+}
+
+function expectTextSpec(spec: WidgetEditorSpec | null): TextEditorSpec {
+    expect(spec?.kind).toBe('text');
+    if (spec?.kind !== 'text') {
+        throw new Error('expected a text editor spec');
+    }
+    return spec;
 }
 
 describe('LinkWidget', () => {
@@ -148,5 +160,93 @@ describe('LinkWidget', () => {
 
         expect(widget.supportsColors(item)).toBe(true);
         expect(widget.supportsRawValue()).toBe(true);
+    });
+});
+
+describe('LinkWidget editor specs', () => {
+    const widget = new LinkWidget();
+    const configured: WidgetItem = {
+        id: 'link',
+        type: 'link',
+        color: 'cyan',
+        metadata: {
+            url: 'https://example.com/docs',
+            text: 'Docs'
+        }
+    };
+    const empty: WidgetItem = { id: 'link', type: 'link' };
+
+    it('returns null for unknown actions', () => {
+        expect(widget.getEditorSpec(configured, 'unknown-action')).toBeNull();
+    });
+
+    it('describes the URL editor as a text spec showing the current text', () => {
+        const spec = expectTextSpec(widget.getEditorSpec(configured, 'edit-url'));
+
+        expect(spec.prompt).toBe('Enter URL (http/https): ');
+        expect(spec.initialValue).toBe('https://example.com/docs');
+        expect(spec.hint).toBe('Current text: Docs');
+
+        const emptySpec = expectTextSpec(widget.getEditorSpec(empty, 'edit-url'));
+        expect(emptySpec.initialValue).toBe('');
+        expect(emptySpec.hint).toBe('Current text: (uses URL)');
+    });
+
+    it('warns about URLs that are not http or https while editing', () => {
+        const spec = expectTextSpec(widget.getEditorSpec(configured, 'edit-url'));
+
+        expect(spec.validate?.('ftp://x')).toBe('URL must begin with http:// or https://');
+        expect(spec.validate?.('not a url')).toBe('URL must begin with http:// or https://');
+        expect(spec.validate?.('https://example.com')).toBeNull();
+        expect(spec.validate?.(' http://example.com ')).toBeNull();
+        expect(spec.validate?.('')).toBeNull();
+        expect(spec.validate?.('   ')).toBeNull();
+    });
+
+    it('commits the URL while preserving the existing text', () => {
+        const spec = expectTextSpec(widget.getEditorSpec(configured, 'edit-url'));
+
+        expect(spec.commit(configured, 'https://example.org/guide')).toEqual({
+            ...configured,
+            metadata: { url: 'https://example.org/guide', text: 'Docs' }
+        });
+        expect(spec.commit(configured, '  https://example.org/guide  ').metadata?.url).toBe('https://example.org/guide');
+    });
+
+    it('clears the URL when committed blank', () => {
+        const spec = expectTextSpec(widget.getEditorSpec(configured, 'edit-url'));
+
+        expect(spec.commit(configured, '')).toEqual({ ...configured, metadata: { text: 'Docs' } });
+
+        // With no text left either, the metadata object disappears entirely
+        const urlOnly: WidgetItem = { ...empty, metadata: { url: 'https://example.com' } };
+        expect(expectTextSpec(widget.getEditorSpec(urlOnly, 'edit-url')).commit(urlOnly, '   ')).not.toHaveProperty('metadata');
+    });
+
+    it('describes the text editor as a text spec showing the current URL', () => {
+        const spec = expectTextSpec(widget.getEditorSpec(configured, 'edit-text'));
+
+        expect(spec.prompt).toBe('Enter link text (blank uses URL): ');
+        expect(spec.initialValue).toBe('Docs');
+        expect(spec.hint).toBe('Current URL: https://example.com/docs');
+        expect(spec.validate).toBeUndefined();
+
+        const emptySpec = expectTextSpec(widget.getEditorSpec(empty, 'edit-text'));
+        expect(emptySpec.initialValue).toBe('');
+        expect(emptySpec.hint).toBe('Current URL: (none)');
+    });
+
+    it('commits the text while preserving the existing URL', () => {
+        const spec = expectTextSpec(widget.getEditorSpec(configured, 'edit-text'));
+
+        expect(spec.commit(configured, 'Guide')).toEqual({
+            ...configured,
+            metadata: { url: 'https://example.com/docs', text: 'Guide' }
+        });
+        expect(spec.commit(configured, '')).toEqual({ ...configured, metadata: { url: 'https://example.com/docs' } });
+
+        const emptySpec = expectTextSpec(widget.getEditorSpec(empty, 'edit-text'));
+        expect(emptySpec.commit(empty, 'Guide')).toEqual({ ...empty, metadata: { text: 'Guide' } });
+        expect(emptySpec.commit(empty, '')).not.toHaveProperty('metadata');
     });
 });

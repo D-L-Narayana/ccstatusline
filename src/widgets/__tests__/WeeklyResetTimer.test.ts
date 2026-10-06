@@ -369,6 +369,30 @@ describe('WeeklyResetTimerWidget', () => {
         ]);
     });
 
+    it('opens the locale and timezone editors by action and nothing else', () => {
+        const widget = new WeeklyResetTimerWidget();
+        const item: WidgetItem = {
+            id: 'weekly-reset',
+            type: 'weekly-reset-timer',
+            metadata: { absolute: 'true', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
+        };
+
+        expect(typeof widget.getEditorSpec).toBe('function');
+        expect(widget.getEditorSpec(item, 'edit-locale')).toMatchObject({
+            kind: 'search-list',
+            title: 'Locale',
+            currentLabel: 'ja-JP',
+            initialValue: 'ja-JP'
+        });
+        expect(widget.getEditorSpec(item, 'edit-timezone')).toMatchObject({
+            kind: 'search-list',
+            title: 'Timezone',
+            currentLabel: 'Asia/Tokyo',
+            initialValue: 'Asia/Tokyo'
+        });
+        expect(widget.getEditorSpec(item, 'toggle-hours')).toBeNull();
+    });
+
     it('renders slider bar with elapsed percentage', () => {
         const widget = new WeeklyResetTimerWidget();
         const item: WidgetItem = {

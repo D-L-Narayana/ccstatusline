@@ -106,6 +106,9 @@ import {
 
 const GITHUB_REPO_URL = 'https://github.com/sirmalloc/ccstatusline';
 
+// Import failures list each schema problem; longer lists are cut so the notice stays readable.
+const MAX_IMPORT_ISSUES_SHOWN = 8;
+
 interface FlashMessage {
     text: string;
     color: 'green' | 'red' | 'yellow';
@@ -421,6 +424,24 @@ export function applyTuiImport(
     const nextSettings = applyImport(current, imported, mode, presentKeys);
     chalk.level = nextSettings.colorLevel;
     return nextSettings;
+}
+
+/**
+ * Body of the "Import Failed" notice: the one-line reason and, when the file
+ * has several schema problems, every issue so the user can fix them at once.
+ */
+export function buildImportFailureMessage(result: Extract<ImportValidationResult, { status: 'invalid' }>): string {
+    const issues = result.issues.filter(issue => issue !== result.reason);
+    if (issues.length === 0) {
+        return result.reason;
+    }
+
+    const shown = issues.slice(0, MAX_IMPORT_ISSUES_SHOWN).map(issue => `• ${issue}`);
+    if (issues.length > MAX_IMPORT_ISSUES_SHOWN) {
+        shown.push(`…and ${issues.length - MAX_IMPORT_ISSUES_SHOWN} more`);
+    }
+
+    return [result.reason, '', ...shown].join('\n');
 }
 
 export function clearInstallMenuSelection(menuSelections: Record<string, number>): Record<string, number> {
@@ -807,7 +828,7 @@ export const App: React.FC = () => {
         if (result.status === 'invalid') {
             setFlowNotice({
                 title: 'Import Failed',
-                message: result.reason,
+                message: buildImportFailureMessage(result),
                 color: 'red',
                 continueScreen: 'main'
             });

@@ -48,6 +48,7 @@ interface CommandResponse {
 const CHILD_PID = 4242;
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_USERPROFILE = process.env.USERPROFILE;
+const ORIGINAL_CACHE_DIR = process.env.CCSTATUSLINE_CACHE_DIR;
 const tempPaths: string[] = [];
 let responses: CommandResponse[] = [];
 let fallbackResponse: CommandResponse = {};
@@ -99,6 +100,13 @@ function useFixedCwd(): string {
     tempPaths.push(cwd);
     vi.spyOn(process, 'cwd').mockReturnValue(cwd);
     return cwd;
+}
+
+function useTempCacheDir(): string {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-cmd-cache-'));
+    tempPaths.push(cacheDir);
+    process.env.CCSTATUSLINE_CACHE_DIR = cacheDir;
+    return cacheDir;
 }
 
 function getCacheDir(home: string): string {
@@ -158,6 +166,11 @@ describe('runCustomCommand', () => {
             delete process.env.USERPROFILE;
         } else {
             process.env.USERPROFILE = ORIGINAL_USERPROFILE;
+        }
+        if (ORIGINAL_CACHE_DIR === undefined) {
+            delete process.env.CCSTATUSLINE_CACHE_DIR;
+        } else {
+            process.env.CCSTATUSLINE_CACHE_DIR = ORIGINAL_CACHE_DIR;
         }
 
         while (tempPaths.length > 0) {
@@ -425,6 +438,26 @@ describe('runCustomCommand', () => {
             const cache = readCacheJson(home);
             expect(cache.cwd).toBe(cwd);
             expect(Object.keys(cache.entries ?? {})).toEqual(['my-widget\x001000\x00s1\x00120']);
+        });
+
+        it('persists the shared cache under CCSTATUSLINE_CACHE_DIR instead of the home directory when it is set', () => {
+            vi.spyOn(Date, 'now').mockReturnValue(1000);
+            const home = useTempHome();
+            const cacheDir = useTempCacheDir();
+            useFixedCwd();
+            queueRuns({ stdout: 'isolated' }, { stdout: 'rerun' });
+
+            expect(runCustomCommand(createRequest())).toEqual({ status: 'ok', stdout: 'isolated' });
+
+            const overrideCacheDir = path.join(cacheDir, 'custom-command-cache');
+            expect(fs.existsSync(overrideCacheDir)).toBe(true);
+            expect(fs.readdirSync(overrideCacheDir).filter(file => /^cmd-[a-f0-9]+\.json$/.test(file))).toHaveLength(1);
+            expect(fs.existsSync(getCacheDir(home))).toBe(false);
+
+            clearCustomCommandCache();
+
+            expect(runCustomCommand(createRequest())).toEqual({ status: 'ok', stdout: 'isolated' });
+            expect(mockSpawnSync.mock.calls).toHaveLength(1);
         });
 
         // Custom command output is whatever its author chose to print, so the cache

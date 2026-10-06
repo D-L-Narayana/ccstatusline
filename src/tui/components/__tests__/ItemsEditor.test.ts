@@ -1,7 +1,5 @@
 import { render } from 'ink';
-import { PassThrough } from 'node:stream';
 import React, { useState } from 'react';
-import stripAnsi from 'strip-ansi';
 import {
     describe,
     expect,
@@ -11,58 +9,11 @@ import {
 
 import { DEFAULT_SETTINGS } from '../../../types/Settings';
 import type { WidgetItem } from '../../../types/Widget';
+import {
+    KEYS,
+    createInkHarness
+} from '../../__tests__/ink-harness';
 import { ItemsEditor } from '../ItemsEditor';
-
-class MockTtyStream extends PassThrough {
-    isTTY = true;
-    columns = 120;
-    rows = 40;
-
-    setRawMode() {
-        return this;
-    }
-
-    ref() {
-        return this;
-    }
-
-    unref() {
-        return this;
-    }
-}
-
-interface CapturedWriteStream extends NodeJS.WriteStream {
-    clearOutput: () => void;
-    getOutput: () => string;
-}
-
-function createMockStdin(): NodeJS.ReadStream {
-    return new MockTtyStream() as unknown as NodeJS.ReadStream;
-}
-
-function createMockStdout(): CapturedWriteStream {
-    const stream = new MockTtyStream();
-    const chunks: string[] = [];
-
-    stream.on('data', (chunk: Buffer | string) => {
-        chunks.push(chunk.toString());
-    });
-
-    return Object.assign(stream as unknown as NodeJS.WriteStream, {
-        clearOutput() {
-            chunks.length = 0;
-        },
-        getOutput() {
-            return chunks.join('');
-        }
-    });
-}
-
-function flushInk() {
-    return new Promise((resolve) => {
-        setTimeout(resolve, 25);
-    });
-}
 
 function StatefulItemsEditor({ initialWidgets }: { initialWidgets: WidgetItem[] }) {
     const [widgets, setWidgets] = useState(initialWidgets);
@@ -78,57 +29,37 @@ function StatefulItemsEditor({ initialWidgets }: { initialWidgets: WidgetItem[] 
 
 describe('ItemsEditor', () => {
     it('shows only non-default number styles beside the widget name', async () => {
-        const stdin = createMockStdin();
-        const stdout = createMockStdout();
-        const stderr = createMockStdout();
-
+        const harness = createInkHarness();
         const instance = render(
             React.createElement(StatefulItemsEditor, { initialWidgets: [{ id: '1', type: 'tokens-input' }] }),
-            {
-                stdin,
-                stdout,
-                stderr,
-                debug: true,
-                exitOnCtrlC: false,
-                patchConsole: false
-            }
+            harness.renderOptions
         );
 
         try {
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input');
-            expect(stripAnsi(stdout.getOutput())).not.toContain('(compact)');
+            await harness.flush();
+            expect(harness.plainOutput()).toContain('1. Tokens Input');
+            expect(harness.plainOutput()).not.toContain('(compact)');
 
-            stdout.clearOutput();
-            stdin.write('.');
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input (compact)');
+            harness.stdout.clearOutput();
+            await harness.press('.');
+            expect(harness.plainOutput()).toContain('1. Tokens Input (compact)');
 
-            stdout.clearOutput();
-            stdin.write('.');
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input (whole)');
+            harness.stdout.clearOutput();
+            await harness.press('.');
+            expect(harness.plainOutput()).toContain('1. Tokens Input (whole)');
 
-            stdout.clearOutput();
-            stdin.write('.');
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input');
-            expect(stripAnsi(stdout.getOutput())).not.toContain('(compact)');
-            expect(stripAnsi(stdout.getOutput())).not.toContain('(whole)');
+            harness.stdout.clearOutput();
+            await harness.press('.');
+            expect(harness.plainOutput()).toContain('1. Tokens Input');
+            expect(harness.plainOutput()).not.toContain('(compact)');
+            expect(harness.plainOutput()).not.toContain('(whole)');
         } finally {
-            instance.unmount();
-            instance.cleanup();
-            stdin.destroy();
-            stdout.destroy();
-            stderr.destroy();
+            harness.cleanup(instance);
         }
     });
 
     it('preserves existing widget modifiers before the number style', async () => {
-        const stdin = createMockStdin();
-        const stdout = createMockStdout();
-        const stderr = createMockStdout();
-
+        const harness = createInkHarness();
         const instance = render(
             React.createElement(ItemsEditor, {
                 widgets: [{
@@ -142,25 +73,69 @@ describe('ItemsEditor', () => {
                 lineNumber: 1,
                 settings: DEFAULT_SETTINGS
             }),
-            {
-                stdin,
-                stdout,
-                stderr,
-                debug: true,
-                exitOnCtrlC: false,
-                patchConsole: false
-            }
+            harness.renderOptions
         );
 
         try {
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Cache Read (session) (compact)');
+            await harness.flush();
+            expect(harness.plainOutput()).toContain('1. Cache Read (session) (compact)');
         } finally {
-            instance.unmount();
-            instance.cleanup();
-            stdin.destroy();
-            stdout.destroy();
-            stderr.destroy();
+            harness.cleanup(instance);
+        }
+    });
+
+    // Custom Text describes its editor through getEditorSpec, so these cover
+    // the whole spec path: keybind → spec → generic editor → committed item.
+    const customTextWidgets: WidgetItem[] = [{ id: '1', type: 'custom-text', customText: 'hello' }];
+
+    it('opens the generic editor from a widget editor spec and applies the committed value', async () => {
+        const harness = createInkHarness();
+        const instance = render(
+            React.createElement(StatefulItemsEditor, { initialWidgets: customTextWidgets }),
+            harness.renderOptions
+        );
+
+        try {
+            await harness.flush();
+            expect(harness.plainOutput()).toContain('1. Custom Text (hello)');
+
+            harness.stdout.clearOutput();
+            await harness.press('e');
+            expect(harness.plainOutput()).toContain('Enter custom text: hello');
+            expect(harness.plainOutput()).not.toContain('Edit Line 1');
+
+            await harness.press('!');
+            harness.stdout.clearOutput();
+            await harness.press(KEYS.enter);
+            expect(harness.plainOutput()).toContain('1. Custom Text (hello!)');
+            expect(harness.plainOutput()).not.toContain('Enter custom text:');
+        } finally {
+            harness.cleanup(instance);
+        }
+    });
+
+    it('returns to the item list without changes when the spec editor is cancelled', async () => {
+        const harness = createInkHarness();
+        const instance = render(
+            React.createElement(StatefulItemsEditor, { initialWidgets: customTextWidgets }),
+            harness.renderOptions
+        );
+
+        try {
+            await harness.flush();
+            await harness.press('e');
+            expect(harness.plainOutput()).toContain('Enter custom text: hello');
+
+            await harness.press('X');
+            expect(harness.plainOutput()).toContain('Enter custom text: helloX');
+
+            harness.stdout.clearOutput();
+            await harness.press(KEYS.escape);
+            expect(harness.plainOutput()).toContain('1. Custom Text (hello)');
+            expect(harness.plainOutput()).not.toContain('helloX');
+            expect(harness.plainOutput()).not.toContain('Enter custom text:');
+        } finally {
+            harness.cleanup(instance);
         }
     });
 });

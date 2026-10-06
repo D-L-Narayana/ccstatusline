@@ -1,10 +1,4 @@
-import {
-    Box,
-    Text,
-    useInput
-} from 'ink';
 import * as os from 'node:os';
-import React, { useState } from 'react';
 
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
@@ -12,17 +6,18 @@ import type {
     CustomKeybind,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
-import { shouldInsertInput } from '../utils/input-guards';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 
 import {
     SYMBOL_OVERRIDE_ACTION,
     formatSymbolPrefix,
     getSymbolKeybind,
-    renderSymbolOverrideEditor
+    getSymbolOverrideEditorSpec
 } from './shared/symbol-override';
+
+const EDIT_SEGMENTS_ACTION = 'edit-segments';
 
 export class CurrentWorkingDirWidget implements Widget {
     getDefaultColor(): string { return 'blue'; }
@@ -178,17 +173,45 @@ export class CurrentWorkingDirWidget implements Widget {
     getCustomKeybinds(): CustomKeybind[] {
         return [
             { key: 'h', label: '(h)ome ~', action: 'toggle-abbreviate-home' },
-            { key: 's', label: '(s)egments', action: 'edit-segments' },
+            { key: 's', label: '(s)egments', action: EDIT_SEGMENTS_ACTION },
             { key: 'f', label: '(f)ish style', action: 'toggle-fish-style' },
             getSymbolKeybind()
         ];
     }
 
-    renderEditor(props: WidgetEditorProps): React.ReactElement {
-        if (props.action === SYMBOL_OVERRIDE_ACTION) {
-            return renderSymbolOverrideEditor(props, '');
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action === SYMBOL_OVERRIDE_ACTION) {
+            // No default glyph: the cwd label stands on its own unless the user picks one
+            return getSymbolOverrideEditorSpec(item, '');
         }
-        return <CurrentWorkingDirEditor {...props} />;
+
+        if (action === EDIT_SEGMENTS_ACTION) {
+            return {
+                kind: 'number',
+                prompt: 'Enter number of segments to display (blank for full path): ',
+                initialValue: item.metadata?.segments ?? '',
+                commit: (current, value) => {
+                    if (value !== null && value > 0) {
+                        return {
+                            ...current,
+                            metadata: {
+                                ...current.metadata,
+                                segments: String(value)
+                            }
+                        };
+                    }
+
+                    // Blank or invalid input shows the full path again
+                    const { segments, ...restMetadata } = current.metadata ?? {};
+                    return {
+                        ...current,
+                        metadata: Object.keys(restMetadata).length > 0 ? restMetadata : undefined
+                    };
+                }
+            };
+        }
+
+        return null;
     }
 
     supportsRawValue(): boolean { return true; }
@@ -248,52 +271,3 @@ export class CurrentWorkingDirWidget implements Widget {
         }
     }
 }
-
-const CurrentWorkingDirEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel, action }) => {
-    const [segmentsInput, setSegmentsInput] = useState(widget.metadata?.segments ?? '');
-
-    useInput((input, key) => {
-        if (action === 'edit-segments') {
-            if (key.return) {
-                const segments = parseInt(segmentsInput, 10);
-                if (!isNaN(segments) && segments > 0) {
-                    onComplete({
-                        ...widget,
-                        metadata: {
-                            ...widget.metadata,
-                            segments: segments.toString()
-                        }
-                    });
-                } else {
-                    // Clear segments if blank or invalid
-                    const { segments, ...restMetadata } = widget.metadata ?? {};
-                    onComplete({
-                        ...widget,
-                        metadata: Object.keys(restMetadata).length > 0 ? restMetadata : undefined
-                    });
-                }
-            } else if (key.escape) {
-                onCancel();
-            } else if (key.backspace) {
-                setSegmentsInput(segmentsInput.slice(0, -1));
-            } else if (shouldInsertInput(input, key) && /\d/.test(input)) {
-                setSegmentsInput(segmentsInput + input);
-            }
-        }
-    });
-
-    if (action === 'edit-segments') {
-        return (
-            <Box flexDirection='column'>
-                <Box>
-                    <Text>Enter number of segments to display (blank for full path): </Text>
-                    <Text>{segmentsInput}</Text>
-                    <Text backgroundColor='gray' color='black'>{' '}</Text>
-                </Box>
-                <Text dimColor>Press Enter to save, ESC to cancel</Text>
-            </Box>
-        );
-    }
-
-    return <Text>Unknown editor mode</Text>;
-};

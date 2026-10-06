@@ -1,10 +1,3 @@
-import {
-    Box,
-    Text,
-    useInput
-} from 'ink';
-import React, { useState } from 'react';
-
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
@@ -12,11 +5,10 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import type { WidgetHookDef } from '../utils/hooks';
-import { shouldInsertInput } from '../utils/input-guards';
 
 import { makeModifierText } from './shared/editor-display';
 import { isHidden } from './shared/hideable';
@@ -107,8 +99,18 @@ export class SkillsWidget implements Widget {
         return null;
     }
 
-    renderEditor(props: WidgetEditorProps): React.ReactElement {
-        return <SkillsEditor {...props} />;
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== EDIT_LIST_LIMIT_ACTION) {
+            return null;
+        }
+
+        return {
+            kind: 'number',
+            prompt: 'Enter max skills to show (0 for unlimited): ',
+            initialValue: parseListLimit(item).toString(),
+            // Blank or negative input means unlimited, which removes the key
+            commit: (current, value) => setListLimit(current, value === null || value < 0 ? 0 : value)
+        };
     }
 
     render(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
@@ -163,40 +165,3 @@ export class SkillsWidget implements Widget {
         return mode && MODES.includes(mode as Mode) ? mode as Mode : 'current';
     }
 }
-
-const SkillsEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel, action }) => {
-    const [limitInput, setLimitInput] = useState(() => parseListLimit(widget).toString());
-
-    useInput((input, key) => {
-        if (action !== EDIT_LIST_LIMIT_ACTION) {
-            return;
-        }
-
-        if (key.return) {
-            const parsed = parseInt(limitInput, 10);
-            const limit = Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
-            onComplete(setListLimit(widget, limit));
-        } else if (key.escape) {
-            onCancel();
-        } else if (key.backspace) {
-            setLimitInput(limitInput.slice(0, -1));
-        } else if (shouldInsertInput(input, key) && /\d/.test(input)) {
-            setLimitInput(limitInput + input);
-        }
-    });
-
-    if (action === EDIT_LIST_LIMIT_ACTION) {
-        return (
-            <Box flexDirection='column'>
-                <Box>
-                    <Text>Enter max skills to show (0 for unlimited): </Text>
-                    <Text>{limitInput}</Text>
-                    <Text backgroundColor='gray' color='black'>{' '}</Text>
-                </Box>
-                <Text dimColor>Press Enter to save, ESC to cancel</Text>
-            </Box>
-        );
-    }
-
-    return <Text>Unknown editor mode</Text>;
-};

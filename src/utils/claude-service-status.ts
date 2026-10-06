@@ -1,21 +1,24 @@
 import * as fs from 'fs';
 import * as https from 'https';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import * as os from 'os';
-import * as path from 'path';
 import { z } from 'zod';
 
 import type { ColorLevelString } from '../types/ColorLevel';
 import type { WidgetItem } from '../types/Widget';
 
+import {
+    getCacheDir,
+    getCachePath
+} from './cache-dir';
 import { getColorAnsiCode } from './colors';
 
 // Cache configuration mirrors usage-fetch.ts: a short-lived disk cache shared
 // across statusline invocations, plus a failure lock so an unreachable status
-// page cannot trigger a network attempt on every render.
-const CACHE_DIR = path.join(os.homedir(), '.cache', 'ccstatusline');
-const CACHE_FILE = path.join(CACHE_DIR, 'claude-status.json');
-const LOCK_FILE = path.join(CACHE_DIR, 'claude-status.lock');
+// page cannot trigger a network attempt on every render. The paths are
+// resolved per call (see getStatusCacheDir and friends below) so a change to
+// CCSTATUSLINE_CACHE_DIR or to the home directory is observed by the next fetch.
+const STATUS_CACHE_FILE_NAME = 'claude-status.json';
+const STATUS_LOCK_FILE_NAME = 'claude-status.lock';
 const CACHE_MAX_AGE = 300;       // seconds - refresh service status every ~5 minutes
 const FAILURE_BACKOFF = 30;      // seconds - wait before retrying after a failed fetch
 
@@ -208,15 +211,28 @@ type CachedClaudeStatus = z.infer<typeof CachedClaudeStatusSchema>;
 // Memory cache so multiple lines in one invocation share a single lookup
 let memoryCache: CachedClaudeStatus | null = null;
 
+function getStatusCacheDir(): string {
+    return getCacheDir();
+}
+
+function getStatusCacheFile(): string {
+    return getCachePath(STATUS_CACHE_FILE_NAME);
+}
+
+function getStatusLockFile(): string {
+    return getCachePath(STATUS_LOCK_FILE_NAME);
+}
+
 function ensureCacheDirExists(): void {
-    if (!fs.existsSync(CACHE_DIR)) {
-        fs.mkdirSync(CACHE_DIR, { recursive: true });
+    const cacheDir = getStatusCacheDir();
+    if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
     }
 }
 
 function readCachedClaudeStatus(): CachedClaudeStatus | null {
     try {
-        return parseJsonWithSchema(fs.readFileSync(CACHE_FILE, 'utf8'), CachedClaudeStatusSchema);
+        return parseJsonWithSchema(fs.readFileSync(getStatusCacheFile(), 'utf8'), CachedClaudeStatusSchema);
     } catch {
         return null;
     }
@@ -225,7 +241,7 @@ function readCachedClaudeStatus(): CachedClaudeStatus | null {
 function writeCachedClaudeStatus(cache: CachedClaudeStatus): void {
     try {
         ensureCacheDirExists();
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(cache));
+        fs.writeFileSync(getStatusCacheFile(), JSON.stringify(cache));
     } catch {
         // Best-effort caching
     }
@@ -233,7 +249,7 @@ function writeCachedClaudeStatus(cache: CachedClaudeStatus): void {
 
 function isFailureLockActive(nowSeconds: number): boolean {
     try {
-        const lockMtime = Math.floor(fs.statSync(LOCK_FILE).mtimeMs / 1000);
+        const lockMtime = Math.floor(fs.statSync(getStatusLockFile()).mtimeMs / 1000);
         return nowSeconds - lockMtime < FAILURE_BACKOFF;
     } catch {
         return false;
@@ -243,7 +259,7 @@ function isFailureLockActive(nowSeconds: number): boolean {
 function writeFailureLock(): void {
     try {
         ensureCacheDirExists();
-        fs.writeFileSync(LOCK_FILE, '');
+        fs.writeFileSync(getStatusLockFile(), '');
     } catch {
         // Ignore lock file errors
     }
@@ -251,7 +267,7 @@ function writeFailureLock(): void {
 
 function clearFailureLock(): void {
     try {
-        fs.rmSync(LOCK_FILE, { force: true });
+        fs.rmSync(getStatusLockFile(), { force: true });
     } catch {
         // Ignore lock file errors
     }
@@ -334,8 +350,14 @@ function fetchStatusPagePath(
     });
 }
 
-// Exposed only for deterministic response-stream failure tests.
-export const __testing = { fetchStatusPagePath };
+// Exposed only for deterministic tests: response-stream failures, and cache
+// isolation cases that need the in-process memo cleared between them.
+export const __testing = {
+    fetchStatusPagePath,
+    resetMemoryCache(): void {
+        memoryCache = null;
+    }
+};
 
 function toStatusData(cache: CachedClaudeStatus): ClaudeServiceStatusData {
     return {

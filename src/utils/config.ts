@@ -10,6 +10,7 @@ import {
     type Settings
 } from '../types/Settings';
 
+import { formatSettingsIssues } from './config-review';
 import {
     migrateConfig,
     needsMigration
@@ -247,9 +248,19 @@ export async function saveSettings(settings: Settings): Promise<void> {
     } catch { /* ignore hook sync failures */ }
 }
 
+/**
+ * Result of validating a config file for import. For an invalid file, `reason`
+ * is a one-line summary (the first schema problem, or why the file could not be
+ * read) and `issues` lists every problem found, one `<path>: <message>` line per
+ * schema issue, so the user can fix them all at once.
+ */
 export type ImportValidationResult
     = | { status: 'valid'; data: Settings; presentKeys: (keyof Settings)[] }
-        | { status: 'invalid'; reason: string };
+        | { status: 'invalid'; reason: string; issues: string[] };
+
+function invalidImport(reason: string, issues: string[] = [reason]): ImportValidationResult {
+    return { status: 'invalid', reason, issues };
+}
 
 function expandPath(filePath: string): string {
     if (filePath.startsWith('~/') || filePath === '~') {
@@ -271,14 +282,14 @@ export async function validateImportFile(filePath: string): Promise<ImportValida
     try {
         raw = await readFile(expanded, 'utf-8');
     } catch {
-        return { status: 'invalid', reason: `Cannot read file: ${expanded}` };
+        return invalidImport(`Cannot read file: ${expanded}`);
     }
 
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);
     } catch {
-        return { status: 'invalid', reason: 'File is not valid JSON' };
+        return invalidImport('File is not valid JSON');
     }
 
     if (
@@ -288,10 +299,7 @@ export async function validateImportFile(filePath: string): Promise<ImportValida
         && typeof parsed.version === 'number'
         && parsed.version > CURRENT_VERSION
     ) {
-        return {
-            status: 'invalid',
-            reason: `Config version ${parsed.version} is newer than supported version ${CURRENT_VERSION}`
-        };
+        return invalidImport(`Config version ${parsed.version} is newer than supported version ${CURRENT_VERSION}`);
     }
 
     if (needsMigration(parsed, CURRENT_VERSION)) {
@@ -300,7 +308,10 @@ export async function validateImportFile(filePath: string): Promise<ImportValida
 
     const result = SettingsSchema.safeParse(parsed);
     if (!result.success) {
-        return { status: 'invalid', reason: `Invalid config format: ${result.error.issues[0]?.message ?? 'unknown error'}` };
+        return invalidImport(
+            `Invalid config format: ${result.error.issues[0]?.message ?? 'unknown error'}`,
+            formatSettingsIssues(result.error)
+        );
     }
 
     const presentKeys = Object.keys(parsed as Record<string, unknown>)

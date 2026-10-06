@@ -13,6 +13,7 @@ import {
 import {
     applyTuiImport,
     buildConfigLoadWarning,
+    buildImportFailureMessage,
     buildInvalidConfigSaveConfirm,
     clearInstallMenuSelection,
     getConfirmCancelScreen,
@@ -83,6 +84,44 @@ describe('TUI config imports', () => {
         } finally {
             chalk.level = originalLevel;
         }
+    });
+});
+
+describe('Import failure notice', () => {
+    it('shows the reason alone when it is the only issue', () => {
+        expect(buildImportFailureMessage({
+            status: 'invalid',
+            reason: 'File is not valid JSON',
+            issues: ['File is not valid JSON']
+        })).toBe('File is not valid JSON');
+    });
+
+    it('lists every schema issue beneath the reason', () => {
+        const message = buildImportFailureMessage({
+            status: 'invalid',
+            reason: 'Invalid config format: Invalid option: expected one of "full"|"full-minus-40"|"full-until-compact"',
+            issues: [
+                'flexMode: Invalid option: expected one of "full"|"full-minus-40"|"full-until-compact"',
+                'lines[0][0].type: Invalid input: expected string, received number'
+            ]
+        });
+
+        expect(message.split('\n')[0]).toBe('Invalid config format: Invalid option: expected one of "full"|"full-minus-40"|"full-until-compact"');
+        expect(message).toContain('flexMode: Invalid option');
+        expect(message).toContain('lines[0][0].type: Invalid input: expected string, received number');
+    });
+
+    it('caps a long issue list and says how many more there are', () => {
+        const issues = Array.from({ length: 12 }, (_, index) => `lines[${index}][0].type: Invalid input`);
+        const message = buildImportFailureMessage({
+            status: 'invalid',
+            reason: 'Invalid config format: Invalid input',
+            issues
+        });
+
+        expect(message).toContain('lines[7][0].type');
+        expect(message).not.toContain('lines[8][0].type');
+        expect(message).toContain('…and 4 more');
     });
 });
 

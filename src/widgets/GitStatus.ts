@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     getGitStatus,
     isInsideGitWorkTree
@@ -18,9 +18,10 @@ import {
     isHidden
 } from './shared/hideable';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     getSlotSymbol,
     getSymbolKeybind,
-    renderSymbolSlotsEditor,
+    getSymbolSlotsEditorSpec,
     type SymbolSlot
 } from './shared/symbol-override';
 
@@ -82,8 +83,12 @@ export class GitStatusWidget implements Widget {
         return [getSymbolKeybind()];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolSlotsEditor(props, [CONFLICTS_SLOT, STAGED_SLOT, UNSTAGED_SLOT, UNTRACKED_SLOT]);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolSlotsEditorSpec(item, [CONFLICTS_SLOT, STAGED_SLOT, UNSTAGED_SLOT, UNTRACKED_SLOT]);
     }
 
     supportsRawValue(): boolean { return false; }

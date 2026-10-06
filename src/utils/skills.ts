@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 import type {
@@ -7,10 +6,12 @@ import type {
     SkillsMetrics
 } from '../types/SkillsMetrics';
 
+import { getCachePath } from './cache-dir';
+
 const EMPTY: SkillsMetrics = { totalInvocations: 0, uniqueSkills: [], lastSkill: null };
 
 function getSkillsDir(): string {
-    return path.join(os.homedir(), '.cache', 'ccstatusline', 'skills');
+    return getCachePath('skills');
 }
 
 export function getSkillsFilePath(sessionId: string): string {

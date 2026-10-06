@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import chalk from 'chalk';
 
+import { runCli } from './cli';
+import { findUnknownOptions } from './cli/args';
+import { buildHelpText } from './cli/help';
 import type { SkillsMetrics } from './types';
 import type { RenderContext } from './types/RenderContext';
 import type { StatusJSON } from './types/StatusJSON';
 import { StatusJSONSchema } from './types/StatusJSON';
-import { getVisibleText } from './utils/ansi';
 import { prefetchClaudeStatusIfNeeded } from './utils/claude-service-status';
 import { updateColorMap } from './utils/colors';
 import { ZERO_COMPACTION_STATS } from './utils/compaction';
@@ -21,15 +23,8 @@ import {
 } from './utils/git-review-cache';
 import { handleHookInput } from './utils/hook-handler';
 import { getTranscriptAnalysis } from './utils/jsonl';
-import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
-import {
-    buildConfigWarningBadge,
-    calculateMaxWidthsFromPreRendered,
-    countPowerlineStartCapSlots,
-    preRenderAllWidgets,
-    renderStatusLine
-} from './utils/renderer';
-import { advanceGlobalSeparatorIndex } from './utils/separator-index';
+import { renderLines } from './utils/render-lines';
+import { buildConfigWarningBadge } from './utils/renderer';
 import { getSkillsMetrics } from './utils/skills';
 import {
     getWidgetSpeedWindowSeconds,
@@ -179,59 +174,28 @@ async function renderMultipleLines(data: StatusJSON) {
         gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status'))
     };
 
-    // Always pre-render all widgets once (for efficiency)
-    const preRenderedLines = preRenderAllWidgets(lines, settings, context);
-    const preCalculatedMaxWidths = calculateMaxWidthsFromPreRendered(preRenderedLines, settings);
-
-    // Render each line using pre-rendered content
-    let globalSeparatorIndex = 0;
-    let globalPowerlineThemeIndex = 0;
-    let globalPowerlineStartCapIndex = 0;
+    // The shared pipeline pre-renders every widget once, skips lines without
+    // visible text, and carries separator / Powerline indices across lines.
     let configBadgePrepended = false;
-    for (let i = 0; i < lines.length; i++) {
-        const lineItems = lines[i];
-        if (lineItems && lineItems.length > 0) {
-            const preRenderedWidgets = preRenderedLines[i] ?? [];
-            const lineContext = {
-                ...context,
-                lineIndex: i,
-                globalSeparatorIndex,
-                globalPowerlineThemeIndex,
-                globalPowerlineStartCapIndex
-            };
-            let line = renderStatusLine(lineItems, settings, lineContext, preRenderedWidgets, preCalculatedMaxWidths);
-
-            // Only output the line if it has content (not just ANSI codes)
-            // Strip ANSI codes to check if there's actual text
-            const strippedLine = getVisibleText(line).trim();
-            if (strippedLine.length > 0) {
-                if (configError && !configBadgePrepended) {
-                    // On the error path settings are always inMemoryDefaults(), whose separators render as ' | '.
-                    line = `${buildConfigWarningBadge(settings.colorLevel)} | ${line}`;
-                    configBadgePrepended = true;
-                }
-
-                // Replace all spaces with non-breaking spaces to prevent VSCode trimming
-                let outputLine = line.replace(/ /g, '\u00A0');
-
-                // Add reset code at the beginning to override Claude Code's dim setting
-                outputLine = '\x1b[0m' + outputLine;
-                console.log(outputLine);
-
-                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems, preRenderedWidgets);
-                if (settings.powerline.enabled) {
-                    globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
-                }
-                if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
-                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
-                }
-            }
+    for (const rendered of renderLines(settings, context)) {
+        let line = rendered.line;
+        if (configError && !configBadgePrepended) {
+            // On the error path settings are always inMemoryDefaults(), whose separators render as ' | '.
+            line = `${buildConfigWarningBadge(settings.colorLevel)} | ${line}`;
+            configBadgePrepended = true;
         }
+
+        // Replace all spaces with non-breaking spaces to prevent VSCode trimming
+        let outputLine = line.replace(/ /g, ' ');
+
+        // Add reset code at the beginning to override Claude Code's dim setting
+        outputLine = '\x1b[0m' + outputLine;
+        console.log(outputLine);
     }
 
     // Defensive fallback: if no content line was emitted, ensure the warning is not lost
     if (configError && !configBadgePrepended) {
-        console.log('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, '\u00A0'));
+        console.log('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, ' '));
     }
 
     // Check if there's an update message to display
@@ -320,8 +284,26 @@ async function main() {
         return;
     }
 
+    // Headless CLI modes (--help, --preview, --validate, --schema, --doctor)
+    // never read stdin. The exit code is left to the event loop so piped
+    // stdout is flushed before the process ends.
+    const cliArgs = process.argv.slice(2);
+    const cliResult = await runCli(cliArgs);
+    if (cliResult.handled) {
+        process.exitCode = cliResult.exitCode;
+        return;
+    }
+
+    const unknownOptions = findUnknownOptions(cliArgs);
+
     // Check if we're in a piped/non-TTY environment first
     if (!process.stdin.isTTY) {
+        if (unknownOptions.length > 0) {
+            // Never break a user's status line over a typo in the configured
+            // statusLine command: warn on stderr and render as usual.
+            console.error(`ccstatusline: ignoring unknown option(s): ${unknownOptions.join(', ')}`);
+        }
+
         await ensureWindowsUtf8CodePage();
 
         // We're receiving piped input
@@ -345,6 +327,14 @@ async function main() {
             process.exit(1);
         }
     } else {
+        if (unknownOptions.length > 0) {
+            // Interactive use: a typo should not silently open the TUI.
+            console.error(`ccstatusline: unknown option(s): ${unknownOptions.join(', ')}\n`);
+            console.error(buildHelpText(getPackageVersion()));
+            process.exitCode = 2;
+            return;
+        }
+
         // Interactive mode - run TUI
         // Remove updatemessage before running TUI
         const settings = await loadSettings();

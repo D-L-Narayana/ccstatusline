@@ -5,17 +5,18 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 
 import {
+    SPEED_WINDOW_EDITOR_ACTION,
     getSpeedWidgetCustomKeybinds,
     getSpeedWidgetDescription,
     getSpeedWidgetDisplayName,
     getSpeedWidgetEditorDisplay,
     getSpeedWidgetHideableStates,
-    renderSpeedWidgetEditor,
+    getSpeedWindowEditorSpec,
     renderSpeedWidgetValue
 } from './shared/speed-widget';
 
@@ -40,8 +41,12 @@ export class OutputSpeedWidget implements Widget {
         return getSpeedWidgetHideableStates();
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSpeedWidgetEditor(props);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SPEED_WINDOW_EDITOR_ACTION) {
+            return null;
+        }
+
+        return getSpeedWindowEditorSpec(item);
     }
 
     supportsRawValue(): boolean { return true; }

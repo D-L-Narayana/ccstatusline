@@ -2,10 +2,18 @@
 export type {
     CustomKeybind,
     Widget,
-    WidgetEditorProps,
     WidgetItem,
     WidgetItemType
 } from './Widget';
+export type {
+    NumberEditorSpec,
+    SearchListEditorSpec,
+    SearchListOption,
+    SymbolSlotSpec,
+    SymbolSlotsEditorSpec,
+    TextEditorSpec,
+    WidgetEditorSpec
+} from './WidgetEditorSpec';
 export type { Settings } from './Settings';
 export type { FlexMode } from './FlexMode';
 export type { PowerlineConfig } from './PowerlineConfig';

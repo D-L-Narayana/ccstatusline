@@ -276,6 +276,17 @@ describe('CompactionCounterWidget', () => {
             ]);
         });
 
+        it('opens a glyph editor for the reclaimed symbol only', () => {
+            const widget = new CompactionCounterWidget();
+
+            expect(typeof widget.getEditorSpec).toBe('function');
+            expect(widget.getEditorSpec({ ...ITEM, metadata: { symbolReclaimed: '⇣' } }, 'edit-symbol-override')).toMatchObject({
+                kind: 'symbol-slots',
+                slots: [{ id: 'symbolReclaimed', label: 'Reclaimed', defaultSymbol: '↓', initialValue: '⇣' }]
+            });
+            expect(widget.getEditorSpec(ITEM, 'cycle-metric')).toBeNull();
+        });
+
         it('has correct editor display', () => {
             expect(new CompactionCounterWidget().getEditorDisplay(ITEM)).toEqual({
                 displayText: 'Compaction Counter',

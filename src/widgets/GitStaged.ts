@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     getGitStatus,
     isInsideGitWorkTree
@@ -18,9 +18,10 @@ import {
     isHidden
 } from './shared/hideable';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     getSymbol,
     getSymbolKeybind,
-    renderSymbolOverrideEditor
+    getSymbolOverrideEditorSpec
 } from './shared/symbol-override';
 
 const DEFAULT_SYMBOL = '+';
@@ -63,8 +64,12 @@ export class GitStagedWidget implements Widget {
         return [getSymbolKeybind()];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolOverrideEditor(props, DEFAULT_SYMBOL);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolOverrideEditorSpec(item, DEFAULT_SYMBOL);
     }
 
     getNumericValue(context: RenderContext, _item: WidgetItem): number | null {

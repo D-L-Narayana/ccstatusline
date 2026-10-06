@@ -9,10 +9,22 @@ import type {
     WidgetItem
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
+import type {
+    NumberEditorSpec,
+    WidgetEditorSpec
+} from '../../types/WidgetEditorSpec';
 import { SkillsWidget } from '../Skills';
 
 function render(item: WidgetItem, context: RenderContext): string | null {
     return new SkillsWidget().render(item, context, DEFAULT_SETTINGS);
+}
+
+function expectNumberSpec(spec: WidgetEditorSpec | null): NumberEditorSpec {
+    expect(spec?.kind).toBe('number');
+    if (spec?.kind !== 'number') {
+        throw new Error('expected a number editor spec');
+    }
+    return spec;
 }
 
 describe('SkillsWidget', () => {
@@ -129,5 +141,50 @@ describe('SkillsWidget', () => {
             type: 'skills',
             metadata: { mode: 'list', hide: 'empty' }
         }, context)).toBeNull();
+    });
+
+    describe('list limit editor', () => {
+        const widget = new SkillsWidget();
+        const listItem: WidgetItem = {
+            id: 'skills',
+            type: 'skills',
+            metadata: { mode: 'list', listLimit: '2' }
+        };
+
+        it('returns null for actions without an editor', () => {
+            expect(widget.getEditorSpec(listItem, 'cycle-mode')).toBeNull();
+            expect(widget.getEditorSpec(listItem, 'unknown-action')).toBeNull();
+        });
+
+        it('describes the list limit editor as a number spec', () => {
+            const spec = expectNumberSpec(widget.getEditorSpec(listItem, 'edit-list-limit'));
+
+            expect(spec.prompt).toBe('Enter max skills to show (0 for unlimited): ');
+            expect(spec.initialValue).toBe('2');
+            expect(expectNumberSpec(widget.getEditorSpec({
+                id: 'skills',
+                type: 'skills',
+                metadata: { mode: 'list' }
+            }, 'edit-list-limit')).initialValue).toBe('0');
+            expect(expectNumberSpec(widget.getEditorSpec({
+                id: 'skills',
+                type: 'skills',
+                metadata: { mode: 'list', listLimit: 'abc' }
+            }, 'edit-list-limit')).initialValue).toBe('0');
+        });
+
+        it('stores a positive limit and removes the key otherwise', () => {
+            const spec = expectNumberSpec(widget.getEditorSpec(listItem, 'edit-list-limit'));
+
+            expect(spec.commit(listItem, 3).metadata).toEqual({ mode: 'list', listLimit: '3' });
+            expect(spec.commit(listItem, -1).metadata).toEqual({ mode: 'list' });
+            expect(spec.commit(listItem, 0).metadata).toEqual({ mode: 'list' });
+            expect(spec.commit(listItem, null).metadata).toEqual({ mode: 'list' });
+            expect(spec.commit({
+                id: 'skills',
+                type: 'skills',
+                metadata: { listLimit: '2' }
+            }, null).metadata).toBeUndefined();
+        });
     });
 });

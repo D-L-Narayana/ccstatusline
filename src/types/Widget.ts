@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { NumberFormatSchema } from './NumberFormat';
 import type { RenderContext } from './RenderContext';
 import type { Settings } from './Settings';
+import type { WidgetEditorSpec } from './WidgetEditorSpec';
 
 // Widget item schema - accepts any string type for forward compatibility
 export const WidgetItemSchema = z.object({
@@ -53,7 +54,14 @@ export interface Widget {
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null;
     getCustomKeybinds?(item?: WidgetItem): CustomKeybind[];
     getHideableStates?(): HideableState[];
-    renderEditor?(props: WidgetEditorProps): React.ReactElement | null;
+    /**
+     * Declarative editor for one of the widget's custom keybind actions. The
+     * items editor opens it when handleEditorAction leaves the action
+     * unhandled; the TUI renders the spec with its generic widget editors so
+     * widgets never import ink or react. Return null when the action has no
+     * editor.
+     */
+    getEditorSpec?(item: WidgetItem, action: string): WidgetEditorSpec | null;
     supportsRawValue(): boolean;
     supportsColors(item: WidgetItem): boolean;
     // Whether the widget renders a number whose precision can be overridden.
@@ -69,13 +77,6 @@ export interface Widget {
      * still take precedence (see custom-command's preserve-colors mode).
      */
     preservesRenderedColors?(item: WidgetItem): boolean;
-}
-
-export interface WidgetEditorProps {
-    widget: WidgetItem;
-    onComplete: (updatedWidget: WidgetItem) => void;
-    onCancel: () => void;
-    action?: string;
 }
 
 export interface CustomKeybind {

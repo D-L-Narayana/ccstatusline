@@ -213,6 +213,30 @@ describe('BlockResetTimerWidget', () => {
         ]);
     });
 
+    it('opens the locale and timezone editors by action and nothing else', () => {
+        const widget = new BlockResetTimerWidget();
+        const item: WidgetItem = {
+            id: 'reset',
+            type: 'reset-timer',
+            metadata: { absolute: 'true', timezone: 'Asia/Tokyo', locale: 'ja-JP' }
+        };
+
+        expect(typeof widget.getEditorSpec).toBe('function');
+        expect(widget.getEditorSpec(item, 'edit-locale')).toMatchObject({
+            kind: 'search-list',
+            title: 'Locale',
+            currentLabel: 'ja-JP',
+            initialValue: 'ja-JP'
+        });
+        expect(widget.getEditorSpec(item, 'edit-timezone')).toMatchObject({
+            kind: 'search-list',
+            title: 'Timezone',
+            currentLabel: 'Asia/Tokyo',
+            initialValue: 'Asia/Tokyo'
+        });
+        expect(widget.getEditorSpec(item, 'toggle-date')).toBeNull();
+    });
+
     it('toggles hour format metadata', () => {
         const widget = new BlockResetTimerWidget();
         const baseItem: WidgetItem = {

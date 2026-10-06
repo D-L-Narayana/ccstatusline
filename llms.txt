@@ -7,6 +7,7 @@
 - [Quick Start](https://github.com/sirmalloc/ccstatusline#-quick-start): Run with `npx -y ccstatusline@latest` or `bunx -y ccstatusline@latest` — no installation required. Launches an interactive TUI to configure and install the status line into Claude Code's `settings.json`.
 - [Windows Support](https://github.com/sirmalloc/ccstatusline/blob/main/docs/WINDOWS.md): PowerShell setup, fonts, and WSL/Windows Terminal notes.
 - [Usage](https://github.com/sirmalloc/ccstatusline/blob/main/docs/USAGE.md): Full widget reference and configuration behavior.
+- [Command-Line Flags](https://github.com/sirmalloc/ccstatusline/blob/main/docs/USAGE.md#command-line-flags): headless `--help`, `--preview [--width N] [--json]`, `--validate [file]`, `--schema [settings|status-json]`, and `--doctor [--json]` for galleries, CI, editors, and troubleshooting without the TUI; `CCSTATUSLINE_CACHE_DIR` relocates every cache.
 
 ## Configuration
 

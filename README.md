@@ -47,6 +47,15 @@
 
 ## 🆕 Recent Updates
 
+### Unreleased - Headless CLI, faster render path, cache isolation, safer imports
+
+- **🧰 Headless CLI** - `ccstatusline --help`, `--preview [--width N] [--json]`, `--validate [file]`, `--schema [settings|status-json]`, and `--doctor [--json]` work without the TUI or Claude Code input: render your configuration for galleries and CI, check a config export for every schema issue plus the shell commands and links it contains, publish a JSON Schema for editors, and collect diagnostics that never read credentials. Unknown flags are reported instead of silently opening the TUI.
+- **⚡ Lighter status line render path** - Widget editors are now declarative specs rendered by generic TUI editors, so a Claude Code repaint no longer loads the React/Ink bundle; a smoke test runs the built package under Node and guards the chunk graph.
+- **🗂️ Cache isolation** - `CCSTATUSLINE_CACHE_DIR` relocates every ccstatusline cache (Git, custom command, usage, Claude status, skills, block timer, terminal width, Git PR/MR) in one step for sandboxed or CI renders.
+- **🛡️ Safer config imports** - Import validation lists every problem in the file, the preview shows the shell commands and hyperlinks a config contains, and applying a config that runs shell commands asks for confirmation first.
+- **📈 Lines Changed and API Time widgets** - Show `Lines: +156 -23` (both, added, or removed, with custom glyphs) and `API: 2.3s` (duration, percent of session time, or both) from Claude Code's cost data.
+- **⚠️ Accurate truncation warning** - The TUI's "lines are truncated" notice now reflects real truncation instead of any `...` that happens to appear in the content.
+
 ### v2.2.29 - v2.2.30 - Faster rendering, command caching, and reliable usage
 
 - **⚡ Faster terminal width detection** - Linux can probe the terminal directly without subprocesses, portable fallbacks skip shell wrappers, and configurable caching reuses failed width probes across renders while detected widths refresh on the next render.
@@ -300,6 +309,7 @@
 - **🔎 Fast Widget Picker** - Add/change widgets by category with search and ranked matching
 - **⚙️ Global Options** - Apply consistent formatting across all widgets (padding, separators, bold, minimalist mode, and color overrides)
 - **📦 Portable Configurations** - Export settings to JSON and preview replace-or-merge imports for backups and sharing
+- **🧰 Scriptable CLI** - Preview, validate, schema, and doctor commands for galleries, CI, editors, and troubleshooting without the TUI
 - **🚀 Cross-platform** - Works seamlessly with both Bun and Node.js
 - **🔧 Flexible Configuration** - Supports custom Claude Code config directory via `CLAUDE_CONFIG_DIR` environment variable
 - **📏 Smart Width Detection** - Automatically adapts to terminal width with flex separators
@@ -328,6 +338,8 @@ bunx -y ccstatusline@latest
 ```
 
 Both commands launch the same TUI. During the initial setup flow, choose **Pinned global install** if you want Claude Code to stay on the ccstatusline version you are running instead of following `@latest`; the TUI will install that version globally with npm or Bun and write the pinned `ccstatusline` command to Claude Code settings. After a pinned install, you can run `ccstatusline` directly to launch the TUI in the future.
+
+The same package is also scriptable: `npx -y ccstatusline@latest --preview --width 120` renders your configured status line without Claude Code, and `--doctor` prints diagnostics about the installation. See [Command-Line Flags](docs/USAGE.md#command-line-flags) for the full list.
 
 <br />
 <details>

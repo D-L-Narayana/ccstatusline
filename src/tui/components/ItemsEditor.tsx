@@ -43,6 +43,7 @@ import {
     type WidgetPickerAction,
     type WidgetPickerState
 } from './items-editor/input-handlers';
+import { WidgetEditorHost } from './widget-editors';
 
 export interface ItemsEditorProps {
     widgets: WidgetItem[];
@@ -338,7 +339,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
             : 'Change Widget Type';
 
     // The hide-state checklist is shared across all widgets that declare
-    // hideable states, so it renders here rather than via widget renderEditor
+    // hideable states, so it renders here rather than via a widget editor spec
     if (customEditorWidget?.action === EDIT_HIDE_STATES_ACTION) {
         return (
             <HideStatesEditor
@@ -350,14 +351,17 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
         );
     }
 
-    // If custom editor is active, render it instead of the normal UI
-    if (customEditorWidget?.impl.renderEditor) {
-        return customEditorWidget.impl.renderEditor({
-            widget: customEditorWidget.widget,
-            onComplete: handleEditorComplete,
-            onCancel: handleEditorCancel,
-            action: customEditorWidget.action
-        });
+    // Widgets describe their editors declaratively; the host picks the
+    // matching generic editor and hands the committed item back here.
+    if (customEditorWidget?.spec) {
+        return (
+            <WidgetEditorHost
+                widget={customEditorWidget.widget}
+                spec={customEditorWidget.spec}
+                onComplete={handleEditorComplete}
+                onCancel={handleEditorCancel}
+            />
+        );
     }
 
     if (showClearConfirm) {

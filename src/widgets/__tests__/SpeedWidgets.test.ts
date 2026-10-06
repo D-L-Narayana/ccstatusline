@@ -60,6 +60,20 @@ describe('OutputSpeedWidget', () => {
         ]);
     });
 
+    it('should open a bounded window editor for the window action only', () => {
+        const item = createItem('output-speed', { metadata: { windowSeconds: '45' } });
+
+        expect(typeof widget.getEditorSpec).toBe('function');
+        expect(widget.getEditorSpec(item, 'edit-window')).toMatchObject({
+            kind: 'number',
+            prompt: 'Enter window in seconds (0-120): ',
+            initialValue: '45',
+            min: 0,
+            max: 120
+        });
+        expect(widget.getEditorSpec(item, 'edit-symbol-override')).toBeNull();
+    });
+
     it('should show session average as the default editor modifier', () => {
         expect(widget.getEditorDisplay(createItem('output-speed')).modifierText).toBe('(session avg)');
     });
@@ -121,6 +135,14 @@ describe('speed widget hideable states', () => {
             metadata: { hide: 'no-data' },
             numberFormat
         }), noDataContext, DEFAULT_SETTINGS)).toBeNull();
+    });
+});
+
+describe('speed widget window editor', () => {
+    it('should be shared by all speed widgets', () => {
+        for (const widget of [new InputSpeedWidget(), new OutputSpeedWidget(), new TotalSpeedWidget()]) {
+            expect(widget.getEditorSpec(createItem('total-speed'), 'edit-window')?.kind).toBe('number');
+        }
     });
 });
 

@@ -17,14 +17,15 @@ import {
     writeBlockCache
 } from '../jsonl';
 
-function getExpectedCachePath(homeDir: string, configDir: string): string {
-    const normalizedConfigDir = path.resolve(configDir);
-    const configHash = createHash('sha256')
-        .update(normalizedConfigDir)
+function getConfigHash(configDir: string): string {
+    return createHash('sha256')
+        .update(path.resolve(configDir))
         .digest('hex')
         .slice(0, 16);
+}
 
-    return path.join(homeDir, '.cache', 'ccstatusline', `block-cache-${configHash}.json`);
+function getExpectedCachePath(homeDir: string, configDir: string): string {
+    return path.join(homeDir, '.cache', 'ccstatusline', `block-cache-${getConfigHash(configDir)}.json`);
 }
 
 describe('Block Cache Functions', () => {
@@ -382,5 +383,57 @@ describe('getCachedBlockMetrics negative caching', () => {
         const result = getCachedBlockMetrics();
 
         expect(result?.startTime.getTime()).toBe(startTime.getTime());
+    });
+});
+
+describe('block cache directory override', () => {
+    let tempDir: string;
+    let cacheDir: string;
+    let originalClaudeConfigDir: string | undefined;
+    let originalCacheDir: string | undefined;
+
+    beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-cache-dir-'));
+        cacheDir = path.join(tempDir, 'cache-override');
+        vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+        originalCacheDir = process.env.CCSTATUSLINE_CACHE_DIR;
+        process.env.CLAUDE_CONFIG_DIR = path.join(tempDir, '.claude-default');
+        process.env.CCSTATUSLINE_CACHE_DIR = cacheDir;
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        if (originalClaudeConfigDir === undefined) {
+            delete process.env.CLAUDE_CONFIG_DIR;
+        } else {
+            process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+        }
+        if (originalCacheDir === undefined) {
+            delete process.env.CCSTATUSLINE_CACHE_DIR;
+        } else {
+            process.env.CCSTATUSLINE_CACHE_DIR = originalCacheDir;
+        }
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('places the block cache under CCSTATUSLINE_CACHE_DIR instead of the home directory', () => {
+        const configDir = path.join(tempDir, '.claude-profile-a');
+        const expectedPath = path.join(cacheDir, `block-cache-${getConfigHash(configDir)}.json`);
+        const testDate = new Date('2025-01-26T14:00:00.000Z');
+
+        expect(getBlockCachePath(configDir)).toBe(expectedPath);
+
+        writeBlockCache(testDate, configDir);
+
+        expect(fs.existsSync(expectedPath)).toBe(true);
+        expect(readBlockCache(configDir)).toEqual(testDate);
+        expect(fs.existsSync(path.join(tempDir, '.cache', 'ccstatusline'))).toBe(false);
+    });
+
+    it('applies the override to the active config directory path as well', () => {
+        const activeConfigDir = path.join(tempDir, '.claude-default');
+
+        expect(getBlockCachePath()).toBe(path.join(cacheDir, `block-cache-${getConfigHash(activeConfigDir)}.json`));
     });
 });

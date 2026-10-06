@@ -13,16 +13,7 @@ import {
     stripOscCodes,
     truncateStyledText
 } from '../../utils/ansi';
-import { advanceGlobalPowerlineThemeIndex } from '../../utils/powerline-theme-index';
-import {
-    calculateMaxWidthsFromPreRendered,
-    countPowerlineStartCapSlots,
-    preRenderAllWidgets,
-    renderStatusLineWithInfo,
-    type PreRenderedWidget,
-    type RenderResult
-} from '../../utils/renderer';
-import { advanceGlobalSeparatorIndex } from '../../utils/separator-index';
+import { renderLines } from '../../utils/render-lines';
 
 export interface StatusLinePreviewProps {
     lines: WidgetItem[][];
@@ -31,32 +22,10 @@ export interface StatusLinePreviewProps {
     onTruncationChange?: (isTruncated: boolean) => void;
 }
 
-const renderSingleLine = (
-    widgets: WidgetItem[],
-    terminalWidth: number,
-    settings: Settings,
-    lineIndex: number,
-    globalSeparatorIndex: number,
-    globalPowerlineThemeIndex: number,
-    globalPowerlineStartCapIndex: number,
-    preRenderedWidgets: PreRenderedWidget[],
-    preCalculatedMaxWidths: number[]
-): RenderResult => {
-    // Create render context for preview
-    const context: RenderContext = {
-        terminalWidth,
-        isPreview: true,
-        minimalist: settings.minimalistMode,
-        gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
-        customCommandCacheTtlSeconds: settings.customCommandCacheTtlSeconds,
-        lineIndex,
-        globalSeparatorIndex,
-        globalPowerlineThemeIndex,
-        globalPowerlineStartCapIndex
-    };
-
-    return renderStatusLineWithInfo(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
-};
+interface PreviewRenderState {
+    renderedLines: string[];
+    anyTruncated: boolean;
+}
 
 const PREVIEW_LINE_INDENT = '  ';
 
@@ -67,59 +36,25 @@ export function preparePreviewLineForTerminal(line: string, terminalWidth: numbe
 }
 
 export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, terminalWidth, settings, onTruncationChange }) => {
-    // Render each configured line
-    // Pass the full terminal width - the renderer will handle preview adjustments
-    const { renderedLines, anyTruncated } = React.useMemo(() => {
+    // Render the configured lines through the same pipeline as the status line
+    // output. Pass the full terminal width - the renderer handles preview adjustments.
+    const { renderedLines, anyTruncated } = React.useMemo<PreviewRenderState>(() => {
         if (!settings)
             return { renderedLines: [], anyTruncated: false };
 
-        // Always pre-render all widgets once (for efficiency)
-        const preRenderedLines = preRenderAllWidgets(lines, settings, {
+        const previewContext: RenderContext = {
             terminalWidth,
             isPreview: true,
             minimalist: settings.minimalistMode,
             gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
             customCommandCacheTtlSeconds: settings.customCommandCacheTtlSeconds
-        });
-        const preCalculatedMaxWidths = calculateMaxWidthsFromPreRendered(preRenderedLines, settings);
+        };
+        const rendered = renderLines({ ...settings, lines }, previewContext);
 
-        let globalSeparatorIndex = 0;
-        let globalPowerlineThemeIndex = 0;
-        let globalPowerlineStartCapIndex = 0;
-        const result: string[] = [];
-        let truncated = false;
-
-        for (let i = 0; i < lines.length; i++) {
-            const lineItems = lines[i];
-            if (lineItems && lineItems.length > 0) {
-                const preRenderedWidgets = preRenderedLines[i] ?? [];
-                const renderResult = renderSingleLine(
-                    lineItems,
-                    terminalWidth,
-                    settings,
-                    i,
-                    globalSeparatorIndex,
-                    globalPowerlineThemeIndex,
-                    globalPowerlineStartCapIndex,
-                    preRenderedWidgets,
-                    preCalculatedMaxWidths
-                );
-                result.push(renderResult.line);
-                if (renderResult.wasTruncated) {
-                    truncated = true;
-                }
-
-                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems, preRenderedWidgets);
-                if (settings.powerline.enabled) {
-                    globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
-                }
-                if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
-                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
-                }
-            }
-        }
-
-        return { renderedLines: result, anyTruncated: truncated };
+        return {
+            renderedLines: rendered.map(entry => entry.line),
+            anyTruncated: rendered.some(entry => entry.wasTruncated)
+        };
     }, [lines, terminalWidth, settings]);
 
     // Notify parent when truncation status changes

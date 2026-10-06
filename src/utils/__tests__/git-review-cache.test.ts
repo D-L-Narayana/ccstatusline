@@ -1,4 +1,6 @@
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it
@@ -897,5 +899,48 @@ describe('git-review-cache', () => {
             call => call.cmd === 'glab' && call.args[0] === 'mr'
         );
         expect(glabMrCalls).toHaveLength(1);
+    });
+});
+
+describe('git-review-cache directory override', () => {
+    let originalCacheDir: string | undefined;
+
+    beforeEach(() => {
+        originalCacheDir = process.env.CCSTATUSLINE_CACHE_DIR;
+        process.env.CCSTATUSLINE_CACHE_DIR = '/cache-override';
+    });
+
+    afterEach(() => {
+        if (originalCacheDir === undefined) {
+            delete process.env.CCSTATUSLINE_CACHE_DIR;
+        } else {
+            process.env.CCSTATUSLINE_CACHE_DIR = originalCacheDir;
+        }
+    });
+
+    it('stores cache files and refresh locks under CCSTATUSLINE_CACHE_DIR instead of the injected home', () => {
+        const harness = createHarness();
+        harness.ghResponses.push(JSON.stringify({
+            number: 42,
+            reviewDecision: '',
+            state: 'OPEN',
+            title: 'Isolated PR',
+            url: 'https://github.com/owner/repo/pull/42'
+        }));
+        const normalize = (filePath: string): string => filePath.replace(/\\/g, '/');
+
+        expect(fetchGitReviewData('/tmp/repo', harness.deps)?.title).toBe('Isolated PR');
+
+        const cachePaths = [...harness.cacheFiles.keys()].map(normalize);
+        expect(cachePaths).toHaveLength(1);
+        expect(cachePaths[0]).toContain('/cache-override/git-review/git-review-');
+        expect(cachePaths[0]).not.toContain('/tmp/home');
+
+        harness.advanceNow(30_001);
+        expect(getCachedGitReviewData('/tmp/repo', {}, harness.deps)?.title).toBe('Isolated PR');
+
+        const lockPaths = [...harness.cacheFiles.keys()].map(normalize).filter(filePath => filePath.endsWith('.lock'));
+        expect(lockPaths).toHaveLength(1);
+        expect(lockPaths[0]).toContain('/cache-override/git-review/');
     });
 });

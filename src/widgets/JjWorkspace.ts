@@ -5,9 +5,9 @@ import type {
     HideableState,
     Widget,
     WidgetEditorDisplay,
-    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import type { WidgetEditorSpec } from '../types/WidgetEditorSpec';
 import {
     isInsideJjRepo,
     runJjArgs
@@ -18,9 +18,10 @@ import {
     isHidden
 } from './shared/hideable';
 import {
+    SYMBOL_OVERRIDE_ACTION,
     formatSymbolPrefix,
     getSymbolKeybind,
-    renderSymbolOverrideEditor
+    getSymbolOverrideEditorSpec
 } from './shared/symbol-override';
 
 const CURRENT_WORKSPACE_TEMPLATE = 'if(target.current_working_copy(), name ++ "\n")';
@@ -77,8 +78,12 @@ export class JjWorkspaceWidget implements Widget {
         return [getSymbolKeybind()];
     }
 
-    renderEditor(props: WidgetEditorProps) {
-        return renderSymbolOverrideEditor(props, DEFAULT_SYMBOL);
+    getEditorSpec(item: WidgetItem, action: string): WidgetEditorSpec | null {
+        if (action !== SYMBOL_OVERRIDE_ACTION) {
+            return null;
+        }
+
+        return getSymbolOverrideEditorSpec(item, DEFAULT_SYMBOL);
     }
 
     supportsRawValue(): boolean { return true; }

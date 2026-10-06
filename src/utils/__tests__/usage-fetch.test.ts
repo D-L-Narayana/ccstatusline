@@ -39,6 +39,7 @@ interface TokenHome {
 }
 
 interface ProbeOptions {
+    cacheDir?: string;
     claudeConfigDir?: string;
     home: string;
     httpsProxy?: string;
@@ -142,8 +143,9 @@ https.request = (...args) => {
 
 const { fetchUsageData } = await import(${JSON.stringify(usageModulePath)});
 
-const lockFile = path.join(os.homedir(), '.cache', 'ccstatusline', 'usage.lock');
-const cacheFile = path.join(os.homedir(), '.cache', 'ccstatusline', 'usage.json');
+const cacheDir = process.env.CCSTATUSLINE_CACHE_DIR || path.join(os.homedir(), '.cache', 'ccstatusline');
+const lockFile = path.join(cacheDir, 'usage.lock');
+const cacheFile = path.join(cacheDir, 'usage.json');
 const nowMs = Number(process.env.TEST_NOW_MS || Date.now());
 const requiredFields = JSON.parse(process.env.TEST_REQUIRED_FIELDS_JSON || '[]');
 Date.now = () => nowMs;
@@ -169,6 +171,11 @@ process.stdout.write(JSON.stringify({
         const home = path.join(tempRoot, `home-${name}`);
         fs.mkdirSync(home, { recursive: true });
         return { home };
+    }
+
+    // Not created here: the module under test is expected to create it.
+    function createCacheDir(name: string): string {
+        return path.join(tempRoot, `cache-${name}`);
     }
 
     function createTokenHome(name: string): TokenHome {
@@ -198,7 +205,8 @@ process.stdout.write(JSON.stringify({
     function runProbe(options: ProbeOptions): UsageProbeResult {
         const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => {
             const normalizedKey = key.toUpperCase();
-            return normalizedKey !== 'CLAUDE_CONFIG_DIR'
+            return normalizedKey !== 'CCSTATUSLINE_CACHE_DIR'
+                && normalizedKey !== 'CLAUDE_CONFIG_DIR'
                 && normalizedKey !== 'CLAUDE_SECURESTORAGE_CONFIG_DIR'
                 && normalizedKey !== 'HTTPS_PROXY';
         }));
@@ -217,6 +225,10 @@ process.stdout.write(JSON.stringify({
             TEST_RESPONSE_HEADERS_JSON: JSON.stringify(options.responseHeaders ?? {}),
             TEST_STATUS_CODE: String(options.statusCode ?? (options.mode === 'success' ? 200 : 500))
         });
+
+        if (options.cacheDir !== undefined) {
+            env.CCSTATUSLINE_CACHE_DIR = options.cacheDir;
+        }
 
         if (options.claudeConfigDir !== undefined) {
             env.CLAUDE_CONFIG_DIR = options.claudeConfigDir;
@@ -250,6 +262,7 @@ process.stdout.write(JSON.stringify({
 
     return {
         cleanup,
+        createCacheDir,
         createEmptyHome,
         createTokenHome,
         runProbe
@@ -1727,6 +1740,69 @@ describe('fetchUsageData error handling', () => {
             expect(result.first).toEqual({ error: 'timeout' });
             expect(result.second).toEqual({ error: 'timeout' });
             expect(result.requestCount).toBe(0);
+        } finally {
+            harness.cleanup();
+        }
+    });
+
+    it('writes usage.json and the lock under CCSTATUSLINE_CACHE_DIR instead of the home directory', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const home = harness.createTokenHome('cache-dir-override');
+            const cacheDir = harness.createCacheDir('override');
+            const result = harness.runProbe({
+                cacheDir,
+                claudeConfigDir: home.claudeConfig,
+                home: home.home,
+                mode: 'success',
+                nowMs,
+                pathDir: home.bin,
+                responseBody: successResponseBody
+            });
+
+            expect(result.first).toEqual({
+                sessionUsage: 42,
+                sessionResetAt: '2030-01-01T00:00:00.000Z',
+                weeklyUsage: 17,
+                weeklyResetAt: '2030-01-07T00:00:00.000Z'
+            });
+            expect(result.requestCount).toBe(1);
+            expect(fs.existsSync(path.join(cacheDir, 'usage.json'))).toBe(true);
+            expect(result.cacheExists).toBe(true);
+            expect(result.lockExists).toBe(false);
+            expect(fs.existsSync(path.join(home.home, '.cache', 'ccstatusline'))).toBe(false);
+        } finally {
+            harness.cleanup();
+        }
+    });
+
+    it('honors a usage.lock stored under CCSTATUSLINE_CACHE_DIR', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const home = harness.createTokenHome('cache-dir-lock');
+            const cacheDir = harness.createCacheDir('lock');
+            fs.mkdirSync(cacheDir, { recursive: true });
+            const lockContents = JSON.stringify({
+                blockedUntil: Math.floor(nowMs / 1000) + 3600,
+                error: 'rate-limited'
+            });
+            fs.writeFileSync(path.join(cacheDir, 'usage.lock'), lockContents);
+
+            const result = harness.runProbe({
+                cacheDir,
+                claudeConfigDir: home.claudeConfig,
+                home: home.home,
+                mode: 'unexpected',
+                nowMs,
+                pathDir: home.bin
+            });
+
+            expect(result.first).toEqual({ error: 'rate-limited' });
+            expect(result.second).toEqual(result.first);
+            expect(result.requestCount).toBe(0);
+            expect(result.lockContents).toBe(lockContents);
         } finally {
             harness.cleanup();
         }

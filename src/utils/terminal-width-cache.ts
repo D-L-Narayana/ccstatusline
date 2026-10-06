@@ -1,6 +1,7 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+
+import { getCachePath } from './cache-dir';
 
 const CACHE_SCHEMA_VERSION = 1 as const;
 const PRUNE_AFTER_MS = 60 * 60 * 1000;
@@ -28,18 +29,19 @@ export interface WidthCacheDeps {
     cachePath: string;
 }
 
-function defaultCachePath(): string {
-    return path.join(os.homedir(), '.cache', 'ccstatusline', 'terminal-width.json');
+// Built per call rather than once at module load: the cache path depends on
+// CCSTATUSLINE_CACHE_DIR and the home directory, both of which must be read
+// when the cache is actually used (see cache-dir.ts).
+function createDefaultDeps(): WidthCacheDeps {
+    return {
+        readFileSync: (p: string) => fs.readFileSync(p, 'utf-8'),
+        writeFileSync: (p: string, data: string) => { fs.writeFileSync(p, data, 'utf-8'); },
+        renameSync: (from: string, to: string) => { fs.renameSync(from, to); },
+        mkdirSync: (p: string) => { fs.mkdirSync(p, { recursive: true }); },
+        now: () => Date.now(),
+        cachePath: getCachePath('terminal-width.json')
+    };
 }
-
-const defaultDeps: WidthCacheDeps = {
-    readFileSync: (p: string) => fs.readFileSync(p, 'utf-8'),
-    writeFileSync: (p: string, data: string) => { fs.writeFileSync(p, data, 'utf-8'); },
-    renameSync: (from: string, to: string) => { fs.renameSync(from, to); },
-    mkdirSync: (p: string) => { fs.mkdirSync(p, { recursive: true }); },
-    now: () => Date.now(),
-    cachePath: defaultCachePath()
-};
 
 function isEntry(value: unknown): value is WidthCacheEntry {
     if (typeof value !== 'object' || value === null) {
@@ -154,7 +156,7 @@ function readCache(deps: WidthCacheDeps): PersistentWidthCache {
 export function readCachedWidth(
     sessionId: string,
     ttlSeconds: number,
-    deps: WidthCacheDeps = defaultDeps
+    deps: WidthCacheDeps = createDefaultDeps()
 ): { width: number | null } | null {
     if (ttlSeconds <= 0) {
         return null;
@@ -176,7 +178,7 @@ export function readCachedWidth(
 export function writeCachedWidth(
     sessionId: string,
     width: number | null,
-    deps: WidthCacheDeps = defaultDeps
+    deps: WidthCacheDeps = createDefaultDeps()
 ): void {
     try {
         // Ensure the directory exists before locking: the lock file lives

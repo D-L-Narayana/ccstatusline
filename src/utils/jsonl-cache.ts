@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import type { BlockMetrics } from '../types';
 
+import { getCacheDir } from './cache-dir';
 import { getClaudeConfigDir } from './claude-settings';
 import { getBlockMetrics } from './jsonl-blocks';
 
@@ -38,6 +39,11 @@ function normalizeConfigDir(configDir: string): string {
 
 /**
  * Returns the path to the block cache file for a specific Claude config directory
+ *
+ * @remarks
+ * The file lives in the shared ccstatusline cache directory, so
+ * CCSTATUSLINE_CACHE_DIR relocates it. This module's own home directory lookup
+ * is handed to the shared resolver so it is consulted at call time.
  */
 export function getBlockCachePath(configDir = getClaudeConfigDir()): string {
     const normalizedConfigDir = normalizeConfigDir(configDir);
@@ -46,12 +52,7 @@ export function getBlockCachePath(configDir = getClaudeConfigDir()): string {
         .digest('hex')
         .slice(0, 16);
 
-    return path.join(
-        os.homedir(),
-        '.cache',
-        'ccstatusline',
-        `block-cache-${configHash}.json`
-    );
+    return path.join(getCacheDir(os.homedir), `block-cache-${configHash}.json`);
 }
 
 /**

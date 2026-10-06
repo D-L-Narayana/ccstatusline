@@ -8,9 +8,10 @@ Once configured, `ccstatusline` automatically formats your Claude Code status li
 
 ## Runtime Modes
 
-- **Interactive mode (TUI)**: Launches when there is no stdin input
+- **Interactive mode (TUI)**: Launches when there is no stdin input and no command-line flag selects another mode
 - **Piped mode (renderer)**: Parses Claude Code status JSON from stdin and prints one or more formatted lines
 - **Version mode**: Prints the installed ccstatusline package version and exits when passed `--version`
+- **Headless CLI modes**: `--help`, `--preview`, `--validate`, `--schema`, and `--doctor` run without the TUI and without Claude Code input; see [Command-Line Flags](#command-line-flags)
 
 ```bash
 # Interactive TUI
@@ -21,7 +22,97 @@ bun run example
 
 # Print the installed package version
 ccstatusline --version
+
+# Render the configured status line without Claude Code
+ccstatusline --preview --width 120
 ```
+
+## Command-Line Flags
+
+ccstatusline is scriptable without the TUI. Every flag below works with the `npx`, `bunx`, and pinned-install commands, and `--config <path>` can be combined with any of them to target a specific settings file.
+
+| Flag | Purpose | Exit code |
+| --- | --- | --- |
+| `--help`, `-h` | Print the flag reference and exit | `0` |
+| `--version` | Print the installed package version and exit; runs before any other mode | `0` |
+| `--config <path>` | Load and save settings from a custom file instead of `~/.config/ccstatusline/settings.json` | — |
+| `--preview [--width <columns>] [--json]` | Render the configured status line from your settings without Claude Code input | `0` |
+| `--validate [file]` | Validate the active settings file, or a config export, and report every schema issue plus the shell commands and hyperlinks the config contains | `0` valid, `1` invalid, `2` unreadable |
+| `--schema [settings\|status-json]` | Print the JSON Schema (draft 2020-12) for `settings.json` (default) or for the Claude Code status JSON that ccstatusline reads from stdin | `0` |
+| `--doctor [--json]` | Print diagnostics about the installation and environment | `0` |
+
+`--width` only takes effect together with `--preview`, and `--json` applies to `--preview` and `--doctor`. The headless modes are exclusive: asking for two at once (for example `--schema --doctor`) prints an error to stderr and exits with code `2`, while `--help` always wins so you can ask for help from any command line. `--hook` (used by Claude Code hook installations) and the internal Git review cache refresh flag keep their existing behavior.
+
+### Preview
+
+`--preview` loads your settings, renders every configured line the way a Claude Code repaint would, and prints the result verbatim. It uses sample values for session data, never executes Custom Command widgets, and makes no network requests, so it is safe for galleries and CI:
+
+```bash
+# Render at the detected terminal width
+ccstatusline --preview
+
+# Render a specific configuration at a fixed width
+ccstatusline --config ./statusline.json --preview --width 120
+
+# Machine-readable output for a gallery or a snapshot test
+ccstatusline --preview --width 100 --json
+```
+
+In CI, pair the preview with `--validate` and an isolated cache directory so the job never touches a user profile:
+
+```bash
+# Check a shared config, then render it at a fixed width for a gallery or a review comment
+export CCSTATUSLINE_CACHE_DIR="$RUNNER_TEMP/ccstatusline-cache"
+npx -y ccstatusline@latest --validate ./statusline.json
+npx -y ccstatusline@latest --config ./statusline.json --preview --width 120 --json > preview.json
+```
+
+The JSON form reports the width that was used (`null` when none could be detected and no `--width` was given) and one entry per rendered line with its zero-based position in the `lines` array of `settings.json` (configured lines that render nothing are skipped), the styled text, the plain text with ANSI sequences removed, and whether the line had to be truncated to fit:
+
+```json
+{
+  "width": 100,
+  "lines": [
+    { "index": 0, "text": "<styled line with ANSI escapes>", "plain": "<same line as plain text>", "wasTruncated": false }
+  ]
+}
+```
+
+### Validate
+
+`--validate` applies the same migration and schema checks as the TUI's **Import Config**, prints every problem it finds rather than only the first, and lists the shell commands and hyperlinks the configuration would run or render, so a shared config can be reviewed before it is used:
+
+```bash
+# Check the active settings file
+ccstatusline --validate
+
+# Check an exported configuration before importing it
+ccstatusline --validate ~/ccstatusline-config.json
+```
+
+Exit codes: `0` when the file is valid, `1` when it is invalid (schema issues, not JSON, or written by a newer schema version), `2` when the path cannot be read (missing, a directory, or permission denied).
+
+### Schema
+
+`--schema` prints a JSON Schema for editors and gallery tooling. `settings` (the default) describes `settings.json`; `status-json` describes the Claude Code status payload. Each document declares `$schema` (draft 2020-12), a stable `$id`, and a `title`; any other target name exits with code `2`:
+
+```bash
+ccstatusline --schema > ccstatusline.schema.json
+ccstatusline --schema status-json
+```
+
+### Doctor
+
+`--doctor` summarizes the installation for bug reports and troubleshooting: version and runtime, the settings file state (path, existence, validity, load error, schema version, line count), the Claude Code integration (config directory, `settings.json` path, `statusLine` command and how it is classified, `refreshInterval`, `claude --version`), the cache directory (path, whether `CCSTATUSLINE_CACHE_DIR` is set, file count and size), the terminal width probe result, which environment overrides are set, and whether `git`, `gh`, `glab`, `jj`, `npm`, and `bun` are available. Only the values of `CLAUDE_CONFIG_DIR`, `CCSTATUSLINE_WIDTH`, `CCSTATUSLINE_CACHE_DIR`, and `CCSTATUSLINE_CONTEXT_SIZE_FALLBACK` are shown; `HTTPS_PROXY` is reported as set or unset. It never reads credential files or the Keychain and never prints token-like values. Pass `--json` for machine-readable output.
+
+```bash
+ccstatusline --doctor
+ccstatusline --doctor --json
+```
+
+### Unknown flags
+
+An unrecognized `--flag` is reported instead of silently starting the TUI. In piped mode (a Claude Code repaint) ccstatusline prints one warning to stderr and still renders the status line, so a typo in the `statusLine` command never blanks the display; in a terminal it prints the help text to stderr and exits with code `2`. Option values are separate arguments (`--width 120`, `--config ./settings.json`); the `--option=value` form is not parsed and is reported as unknown. Everything after a bare `--` is treated as positional and never reported.
 
 ## Available Widgets
 
@@ -31,14 +122,16 @@ ccstatusline --version
 - **Claude Session ID** / **Session Name** / **Claude Account Email** - Show session identifiers plus the currently signed-in Claude account email.
 - **Claude Status** - Show the current Claude/Anthropic service status from `status.claude.com` (`ok` when the indicator is `none`, otherwise the indicator word such as `minor`, `major`, `critical`, or `maintenance`). Press `h` in the editor to add a 48-hour incident-history strip of eight six-hour blocks (oldest to newest), each colored by the worst incident overlapping that block: green (none), yellow (minor), orange (major), red (critical). Responses are cached for about five minutes; on network failure the widget shows stale data when available or degrades to `?`. With the history strip enabled the widget colors itself by severity, so per-widget foreground colors and theme foregrounds are skipped, like Custom Command's preserve-colors mode.
 - **Voice Status** - Show whether Claude Code voice input is enabled. It can render as an icon, icon plus text, plain text, or `voice on/off`, with optional Nerd Font microphone icons.
+- **Remote Control Status** - Show whether Claude Code remote control is attached to the current session, read from the per-process session manifests Claude Code writes under `<CLAUDE_CONFIG_DIR>/sessions/`. It can render as an icon (`📡 ○` / `📡 ◉`), icon plus text, plain `on`/`off`, `remote on/off`, or a `remote` label with `✅`/`❌` or `✓`/`✗` marks, with optional Nerd Font satellite icons. The widget renders nothing when no manifest matches the current session.
 - **Sandbox Status** - Show the effective `sandbox.enabled` value from Claude Code's layered project and user settings. It can render as a glyph, `SB: ON/OFF`, or `Sandbox: ON/OFF`, with optional Nerd Font lock icons. The value is refreshed after `/sandbox` changes, but is best effort when managed or CLI settings override files or sandbox initialization fails.
 - **Thinking Effort** / **Vim Mode** / **Skills** - Show Claude thinking effort, the current vim editing mode, and skill activity from hook data. Thinking Effort reads live status JSON first, then `/model` or `/effort` transcript output, then settings fallback; it supports `low`, `medium`, `high`, `xhigh`, and `max`, shows `default` when no effort is set, and marks unknown future values with `?`. Claude Code reports Ultracode as `xhigh` in status line data; it does not expose Ultracode as a separate effort level.
 - **Session Clock** / **Session Cost** - Show elapsed session time and the current session cost in USD.
+- **Lines Changed** / **API Time** - Show the lines Claude Code has added and removed during the session (`Lines: +156 -23`) and the time spent waiting on the API (`API: 2.3s`; longer waits render as `2m 18s` or `1hr 2m`). Lines Changed can show both counts or only the added or only the removed lines, with customizable `+`/`-` glyphs. API Time can show the duration, its share of the total session time as a percentage (`API: 5.1%`), or both (`API: 2.3s (5.1%)`); the percentage follows the widget's number formatting and is omitted when Claude Code reports no session duration. Both read Claude Code's `cost` fields, drop their label in raw-value mode, and render nothing when those fields are absent.
 
 ### Git
 
-- **Git Branch** / **Git Root Dir** / **Git PR** - Show the current branch, repository root directory, and PR/MR details for the current branch with optional links. Git Branch and Git Root Dir can cap their visible labels to a per-widget maximum width; truncation keeps OSC 8 hyperlink targets intact. Works with GitHub (`gh`) and GitLab (`glab`); SSH remote aliases are resolved with `ssh -G` before provider detection, while canonical GitHub/GitLab remotes keep their original forge hosts. For self-hosted hosts whose name contains neither token, whichever CLI is authenticated against that host (`gh auth status --hostname <h>` / `glab auth status --hostname <h>`) is used.
-- **Git CI Status** - Summarize GitHub checks for the current branch's pull request as failing (`✗`), pending (`●`), and successful (`✓`) counts. Raw-value mode renders `failing`, `pending`, or `passing`; `-` means no pull request or readable check rollup. This widget is GitHub-only and uses the same cached `gh` lookup as Git PR.
+- **Git Branch** / **Git Root Dir** / **Git PR/MR** - Show the current branch, repository root directory, and PR/MR details for the current branch with optional links. Git Branch and Git Root Dir can cap their visible labels to a per-widget maximum width; truncation keeps OSC 8 hyperlink targets intact. Works with GitHub (`gh`) and GitLab (`glab`); SSH remote aliases are resolved with `ssh -G` before provider detection, while canonical GitHub/GitLab remotes keep their original forge hosts. For self-hosted hosts whose name contains neither token, whichever CLI is authenticated against that host (`gh auth status --hostname <h>` / `glab auth status --hostname <h>`) is used.
+- **Git CI Status** - Summarize GitHub checks for the current branch's pull request as failing (`✗`), pending (`●`), and successful (`✓`) counts. Raw-value mode renders `failing`, `pending`, or `passing`; `-` means no pull request or readable check rollup. This widget is GitHub-only and uses the same cached `gh` lookup as Git PR/MR.
 - **Git Changes** / **Git Insertions** / **Git Deletions** - Show combined or separate insertion/deletion counts, with customizable signs through `g`.
 - **Git Status** / **Git Staged** / **Git Unstaged** / **Git Untracked** / **Git Ahead/Behind** / **Git Conflicts** / **Git SHA** - Show compact repo-state indicators, upstream divergence, merge-conflict count, and the current short commit SHA.
 - **Git Staged Files** / **Git Unstaged Files** / **Git Untracked Files** / **Git Clean Status** - Show file-level status counts and clean/dirty state. Git Clean Status supports custom clean/dirty glyphs through `g`; raw mode shows the words `clean` or `dirty`.
@@ -91,6 +184,16 @@ CCSTATUSLINE_WIDTH=160 ccstatusline
 The override is checked before automatic width detection, so it also works in wrapper processes, IDE integrations, nested PTYs, and Windows environments where probing may be unavailable. Invalid values such as `0`, negative numbers, or non-numeric strings are ignored and ccstatusline falls back to normal detection.
 
 On Linux, width detection first uses `/proc` and the terminal device directly, avoiding subprocesses when that probe succeeds. Portable `ps`/`stty`/`tput` fallbacks run without shell wrappers. A probe result is reused throughout one render. If no width is found, that result can also be cached for the same session across renders (default: 5 seconds); a detected width is always re-probed on the next render so resizes take effect immediately. Adjust **Terminal Width Cache TTL** under **Configure Status Line**, or set `terminalWidthCacheTtlSeconds` to `0-300` in `settings.json`; `0` disables the cache across renders.
+
+## Cache Directory
+
+ccstatusline keeps its on-disk caches (Git command results, Git PR/MR lookups, custom command output, usage API data, Claude service status, skills activity, Block Timer state, and terminal width probe results) under `~/.cache/ccstatusline`. Set `CCSTATUSLINE_CACHE_DIR` to move every cache to another directory, for example to isolate a sandboxed or CI render without changing `HOME`:
+
+```bash
+CCSTATUSLINE_CACHE_DIR=/tmp/ccstatusline-cache ccstatusline --preview --width 120
+```
+
+Relative paths are resolved against the current working directory, and an empty value is ignored so the default location is used. `ccstatusline --doctor` reports the cache directory that is in effect.
 
 ## Powerline Auto-Alignment
 
@@ -187,7 +290,7 @@ The usage cache uses a fingerprint of the refresh token when available, falling 
 The TUI main menu can move configurations between machines or preserve a backup:
 
 - **Export Config** writes the current in-memory configuration to a JSON file, including edits that have not been saved to `settings.json` yet. The default destination is `~/ccstatusline-config.json`; parent directories are created as needed, and the export records the ccstatusline version that created it.
-- **Import Config** reads a JSON file, validates it, migrates supported older formats, rejects files from newer schema versions, and shows the effective changes before anything is applied.
+- **Import Config** reads a JSON file, validates it, migrates supported older formats, rejects files from newer schema versions, and shows the effective changes before anything is applied. Validation errors list every problem in the file, not just the first one.
 
 The import preview follows the highlighted action:
 
@@ -195,6 +298,8 @@ The import preview follows the highlighted action:
 - **Merge** overlays only fields explicitly present in the imported file, preserving current values for omitted settings.
 
 Both modes keep machine-local installation metadata and ignore schema/update metadata from the imported file. Applying an import updates only the TUI's working configuration; review the result, then choose **Save & Exit** or press `Ctrl+S` to persist it.
+
+The preview also lists what the imported configuration would execute or link to: every Custom Command widget's shell command and every Link widget's URL appear in a **Review before applying** block (`line N · Custom Command · <command>`). When the import contains shell commands, choosing **Replace All** or **Merge** first asks for confirmation (`This configuration runs N shell command(s) on every status line refresh. Apply anyway?`), so a shared config cannot run commands you have not seen. The same checks are available from the command line with `ccstatusline --validate <file>`.
 
 ## Settings Recovery
 
@@ -265,7 +370,7 @@ Widget-specific shortcuts:
 - **Glyph widgets** (Git Branch, Git Worktree, Git Worktree Mode, Git Staged, Git Unstaged, Git Untracked, Git Conflicts, Git Ahead/Behind, Git Status, Git Changes, Git Insertions, Git Deletions, Git Clean Status, JJ Revision, JJ Bookmarks, JJ Workspace, JJ Changes, JJ Insertions, JJ Deletions): `g` set custom glyphs for the widget's symbols; Backspace in the editor renders without one, and multi-symbol widgets (Ahead/Behind, Status, Conflicts, Changes, Clean Status) edit each part in one list
 - **Git Branch**: `l` toggle clickable branch links (GitHub, GitLab, self-hosted), `w` set a maximum visible width (blank removes the limit)
 - **Git Root Dir**: `l` cycle IDE links (`off` → `VS Code` → `Cursor`), `w` set a maximum visible width (blank removes the limit)
-- **Git PR**: `s` toggle review status, `t` toggle title (renders "MR" for GitLab origins)
+- **Git PR/MR**: `s` toggle review status, `t` toggle title (renders "MR" for GitLab origins)
 - **Git remote widgets** (`Git Origin*` / `Git Upstream*`): `l` toggle clickable repo links
 - **Git Origin Owner/Repo**: `o` show only the owner when the repo is a fork
 - **Git Conflicts**: `z` toggles how a visible conflict-free tree renders (`⚠0` or the clean glyph); `g` edits the conflict and clean glyphs
@@ -276,11 +381,14 @@ Widget-specific shortcuts:
 - **Weekly Reset Timer**: `p` cycle time/full bar/short bar, `s` toggle compact time/date, `t` toggle exact reset date/time, `o` toggle hours-only in time mode, `f` toggle 12/24-hour display in date mode, `z` edit timezone in date mode, `l` edit locale in date mode, `v` invert fill in progress mode
 - **Context Bar**: `p` cycle medium/full/short/short-only progress bar
 - **Compaction Counter**: `v` cycle value (count/auto/manual/unknown/reclaimed), `f` cycle format, `n` toggle Nerd Font icon in icon mode, `s` toggle trigger split (auto/manual/unknown), `t` toggle tokens reclaimed
+- **Lines Changed**: `v` cycle value (both/added/removed), `g` edit the added and removed glyphs
+- **API Time**: `f` cycle format (duration/percent/both); the `.` number-formatting cycle applies to the percentage
 - **Cache widgets** (Cache Hit Rate, Cache Read, Cache Write): `t` toggle turn/session scope
 - **Cache Timer**: `t` cycle 5-minute/1-hour TTL, `g` customize the working/fresh/draining/urgent/cold glyphs
 - **Sandbox Status**: `f` cycle glyph/text/word format, `n` toggle Nerd Font lock icons in glyph mode
 - **Claude Status**: `h` toggle the 48-hour incident-history strip
 - **Voice Status**: `f` cycle format, `n` toggle Nerd Font microphone icons
+- **Remote Control Status**: `f` cycle format (icon, icon plus text, text, word, label with check marks, label with marks), `n` toggle Nerd Font satellite icons in icon formats
 - **Current Working Dir**: `h` home abbreviation, `s` segment editor, `f` fish-style path, `g` optional leading glyph (off by default; pair with raw value to replace the `cwd:` label with the glyph)
 - **Skills**: `v` cycle view mode, `l` edit list limit in list mode
 - **Input Speed / Output Speed / Total Speed**: `w` edit the rolling window in seconds
@@ -303,12 +411,14 @@ Supported states by widget family:
 - **Git Origin widgets**: `no-remote` hides the `no remote` placeholder
 - **Git Upstream widgets / Git Ahead/Behind**: `no-upstream` hides the `no upstream` placeholder
 - **Git Ahead/Behind**: `zero` hides `↑0↓0` when the branch is not diverged (enabled by default; uncheck it to show zeros)
-- **Git PR** (rendered as "MR" for GitLab origins): `no-data` hides the `(no PR)` placeholder, `status` and `title` hide those segments of the PR display
+- **Git PR/MR** (rendered as "MR" for GitLab origins): `no-data` hides the `(no PR)` placeholder, `status` and `title` hide those segments of the PR display
 - **Git CI Status**: `no-data` hides the `-` placeholder when the branch has no pull request or no readable check rollup
 - **Git Is Fork**: `not-fork` hides the widget when the repo is not a fork
 - **Token widgets**: `zero` hides `0` token counts at session start
 - **Session Cost**: `zero` hides `$0.00`
 - **Session Clock**: `zero` hides durations under one minute
+- **Lines Changed**: `zero` hides the widget while the selected count (or both counts) is zero
+- **API Time**: `zero` hides the widget while the API time would display as `0.0s`
 - **Block Timer**: `no-data` hides the `0hr 0m` / empty-bar display when no block is active
 - **Block Reset Timer / Weekly Reset Timer**: `no-data` hides both the `[Loading]` placeholder and the usage-error placeholders while no reset window is available
 - **Input/Output/Total Speed**: `no-data` hides the `—` placeholder when no speed data exists

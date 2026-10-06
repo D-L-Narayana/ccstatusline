@@ -1,4 +1,6 @@
 import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import { fileURLToPath } from 'url';
 import {
     beforeEach,
     describe,
@@ -204,6 +206,53 @@ describe('git-remote utils', () => {
                     owner: 'owner',
                     repo: 'repo'
                 });
+            });
+        });
+
+        // package.json declares engines.node >= 14, and Array.prototype.at only
+        // exists from Node 16.6. The behavioral cases guard the last-segment
+        // extraction across the refactor; the source-level case keeps the
+        // Node 14 floor honest for this module.
+        describe('Node 14 floor guards', () => {
+            it('takes the last path segment of an HTTPS URL with a trailing slash', () => {
+                expect(parseRemoteUrl('https://github.com/o/r/')).toEqual({
+                    host: 'github.com',
+                    owner: 'o',
+                    repo: 'r'
+                });
+            });
+
+            it('takes the last path segment of an HTTPS URL with a .git suffix', () => {
+                expect(parseRemoteUrl('https://github.com/o/r.git')).toEqual({
+                    host: 'github.com',
+                    owner: 'o',
+                    repo: 'r'
+                });
+            });
+
+            it('takes the last path segment of an SSH URL with a .git suffix', () => {
+                expect(parseRemoteUrl('git@github.com:o/r.git')).toEqual({
+                    host: 'github.com',
+                    owner: 'o',
+                    repo: 'r'
+                });
+            });
+
+            it('returns null for an HTTPS URL with a single path segment', () => {
+                expect(parseRemoteUrl('https://github.com/r/')).toBeNull();
+            });
+
+            it('returns null for an SSH URL with a single path segment', () => {
+                expect(parseRemoteUrl('git@github.com:r.git')).toBeNull();
+            });
+
+            it('does not call Array.prototype.at, which Node 14 lacks', () => {
+                const sourcePath = fileURLToPath(new URL('../git-remote.ts', import.meta.url));
+                const offendingLines = fs.readFileSync(sourcePath, 'utf8')
+                    .split('\n')
+                    .filter(line => line.includes('.at('));
+
+                expect(offendingLines).toEqual([]);
             });
         });
     });

@@ -2,9 +2,9 @@ import type { SpawnSyncReturns } from 'child_process';
 import { spawnSync } from 'child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { getCacheDir } from './cache-dir';
 import { captureCustomCommand } from './custom-command-capture';
 
 /** Outcome of one custom command invocation. */
@@ -57,10 +57,6 @@ const MAX_STDOUT_BYTES = 1024 * 1024;
 // In-process cache keeps cwd in the key. The persistent cache stores cwd once at
 // the file level and keys entries by command, session and terminal width.
 const customCommandCache = new Map<string, CustomCommandCacheEntry>();
-
-function getCacheDir(): string {
-    return path.join(os.homedir(), '.cache', 'ccstatusline');
-}
 
 function getCachePath(cwd: string): string {
     const cwdHash = createHash('sha256')

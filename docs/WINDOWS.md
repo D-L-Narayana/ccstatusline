@@ -115,6 +115,8 @@ winget install DEVCOM.JetBrainsMonoNerdFont
 
 ## Windows Troubleshooting
 
+Start with `ccstatusline --doctor`: it reports the detected terminal width, the settings and cache locations, the Claude Code `statusLine` command, and which of `git`, `gh`, `glab`, `jj`, `npm`, and `bun` are on `PATH`, without reading any credentials. `ccstatusline --preview --width 120` renders your configuration without Claude Code so you can check fonts and colors directly in the terminal.
+
 ### Common Issues & Solutions
 
 **Issue**: Status lines wrap because terminal width cannot be detected
@@ -126,6 +128,16 @@ claude
 ```
 
 `CCSTATUSLINE_WIDTH` accepts a positive integer column width and is checked before automatic width detection. Set it in the same environment that starts Claude Code so the status line command inherits it. This is useful on Windows because native width probing is disabled when ccstatusline runs outside WSL.
+
+**Issue**: Caches should live somewhere other than `%USERPROFILE%\.cache\ccstatusline` (for example on a sandboxed or CI machine)
+
+```powershell
+# Move every ccstatusline cache (Git, custom command, usage, Claude status, ...) to one directory
+$env:CCSTATUSLINE_CACHE_DIR="D:\caches\ccstatusline"
+claude
+```
+
+`CCSTATUSLINE_CACHE_DIR` applies to all ccstatusline caches at once. Set it in the same environment that starts Claude Code so the status line command inherits it; `ccstatusline --doctor` shows the directory that is in effect.
 
 **Issue**: Powerline symbols showing as question marks or boxes
 

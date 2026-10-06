@@ -175,9 +175,70 @@ describe('config utilities', () => {
 
         const validation = await validateImportFile(importPath);
 
+        const reason = `Config version ${CURRENT_VERSION + 1} is newer than supported version ${CURRENT_VERSION}`;
         expect(validation).toEqual({
             status: 'invalid',
-            reason: `Config version ${CURRENT_VERSION + 1} is newer than supported version ${CURRENT_VERSION}`
+            reason,
+            issues: [reason]
+        });
+    });
+
+    it('reports every schema issue with its path when an import has several problems', async () => {
+        const { configDir } = getSettingsPaths();
+        const importPath = path.join(configDir, 'broken-import.json');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+            importPath,
+            JSON.stringify({
+                version: CURRENT_VERSION,
+                flexMode: 'wide',
+                lines: [[{ id: 'a', type: 42 }], [], []]
+            }),
+            'utf-8'
+        );
+
+        const validation = await validateImportFile(importPath);
+
+        expect(validation.status).toBe('invalid');
+        if (validation.status !== 'invalid') {
+            return;
+        }
+        // The one-line summary keeps its first-issue wording for the TUI notice...
+        expect(validation.reason).toMatch(/^Invalid config format: /);
+        // ...while every problem is listed together with the path that needs fixing.
+        expect(validation.issues).toEqual(expect.arrayContaining([
+            expect.stringContaining('flexMode'),
+            expect.stringContaining('lines[0][0].type')
+        ]));
+        expect(validation.issues.length).toBeGreaterThanOrEqual(2);
+
+        const summary = validation.reason.slice('Invalid config format: '.length);
+        expect(summary.length).toBeGreaterThan(0);
+        expect(validation.issues[0]).toContain(summary);
+    });
+
+    it('reports an unreadable import path as a single issue matching the reason', async () => {
+        const { configDir } = getSettingsPaths();
+        const importPath = path.join(configDir, 'missing-import.json');
+
+        const validation = await validateImportFile(importPath);
+
+        const reason = `Cannot read file: ${importPath}`;
+        expect(validation).toEqual({ status: 'invalid', reason, issues: [reason] });
+    });
+
+    it('reports a non-JSON import file as a single issue matching the reason', async () => {
+        const { configDir } = getSettingsPaths();
+        const importPath = path.join(configDir, 'not-json-import.json');
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(importPath, '{ not json', 'utf-8');
+
+        const validation = await validateImportFile(importPath);
+
+        expect(validation).toEqual({
+            status: 'invalid',
+            reason: 'File is not valid JSON',
+            issues: ['File is not valid JSON']
         });
     });
 

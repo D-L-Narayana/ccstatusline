@@ -183,6 +183,24 @@ describe('CacheTimer widget', () => {
         expect(widget.handleEditorAction('unknown', item())).toBeNull();
     });
 
+    it('opens a glyph editor with one row per cache state, seeded from overrides', () => {
+        const widget = new CacheTimerWidget();
+
+        expect(typeof widget.getEditorSpec).toBe('function');
+        expect(widget.getEditorSpec(item({ metadata: { symbolCold: 'X' } }), 'edit-symbol-override')).toMatchObject({
+            kind: 'symbol-slots',
+            title: 'Glyphs',
+            slots: [
+                { id: 'symbolHot', label: 'Working', initialValue: '🔥' },
+                { id: 'symbolFresh', label: 'Fresh', initialValue: '🟢' },
+                { id: 'symbolDraining', label: 'Draining', initialValue: '🟡' },
+                { id: 'symbolUrgent', label: 'Urgent', initialValue: '🔴' },
+                { id: 'symbolCold', label: 'Cold', defaultSymbol: '❄️', initialValue: 'X' }
+            ]
+        });
+        expect(widget.getEditorSpec(item(), 'toggle-ttl')).toBeNull();
+    });
+
     it('leaves the editor unannotated at default settings', () => {
         const widget = new CacheTimerWidget();
         expect(widget.getEditorDisplay(item()).displayText).toBe('Cache Timer');

@@ -1,8 +1,15 @@
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as https from 'https';
+import * as os from 'os';
+import * as path from 'path';
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import type { ClaudeIncidentWindow } from '../claude-service-status';
@@ -14,7 +21,8 @@ import {
     hasClaudeStatusWidgets,
     isClaudeStatusHistoryEnabled,
     parseClaudeIncidentsResponse,
-    parseClaudeStatusResponse
+    parseClaudeStatusResponse,
+    prefetchClaudeStatusIfNeeded
 } from '../claude-service-status';
 
 type StatusPageRequestFn = NonNullable<Parameters<typeof __testing.fetchStatusPagePath>[1]>;
@@ -192,5 +200,90 @@ describe('claude-status prefetch predicates', () => {
         expect(isClaudeStatusHistoryEnabled({ id: '1', type: 'claude-status' })).toBe(false);
         expect(isClaudeStatusHistoryEnabled({ id: '1', type: 'claude-status', metadata: { history: 'true' } })).toBe(true);
         expect(isClaudeStatusHistoryEnabled({ id: '1', type: 'custom-text', metadata: { history: 'true' } })).toBe(false);
+    });
+});
+
+describe('claude-status cache directory', () => {
+    let tempRoot: string;
+    let homeDir: string;
+    let cacheDir: string;
+    let originalCacheDir: string | undefined;
+    let originalHttpsProxy: string | undefined;
+
+    type FakeRequest = EventEmitter & { destroy: () => void; end: () => void };
+
+    // Replaces https.request so the prefetch runs its real cache/lock logic
+    // against a scripted status page without touching the network.
+    function mockStatusPage(outcome: { body: string } | 'unreachable'): void {
+        vi.spyOn(https, 'request').mockImplementation(((
+            _options: https.RequestOptions,
+            onResponse: (response: EventEmitter) => void
+        ): FakeRequest => {
+            const response = Object.assign(new EventEmitter(), {
+                statusCode: 200,
+                setEncoding: () => undefined
+            });
+            const request: FakeRequest = Object.assign(new EventEmitter(), {
+                destroy: () => undefined,
+                end() {
+                    if (outcome === 'unreachable') {
+                        request.emit('error', new Error('status page unreachable'));
+                        return;
+                    }
+                    onResponse(response);
+                    response.emit('data', outcome.body);
+                    response.emit('end');
+                }
+            });
+
+            return request;
+        }) as unknown as typeof https.request);
+    }
+
+    beforeEach(() => {
+        tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-claude-status-'));
+        homeDir = path.join(tempRoot, 'home');
+        cacheDir = path.join(tempRoot, 'cache-override');
+        originalCacheDir = process.env.CCSTATUSLINE_CACHE_DIR;
+        originalHttpsProxy = process.env.HTTPS_PROXY;
+        delete process.env.HTTPS_PROXY;
+        process.env.CCSTATUSLINE_CACHE_DIR = cacheDir;
+        vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+        __testing.resetMemoryCache();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        if (originalCacheDir === undefined) {
+            delete process.env.CCSTATUSLINE_CACHE_DIR;
+        } else {
+            process.env.CCSTATUSLINE_CACHE_DIR = originalCacheDir;
+        }
+        if (originalHttpsProxy === undefined) {
+            delete process.env.HTTPS_PROXY;
+        } else {
+            process.env.HTTPS_PROXY = originalHttpsProxy;
+        }
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+    });
+
+    it('writes claude-status.json under CCSTATUSLINE_CACHE_DIR after a successful fetch', async () => {
+        mockStatusPage({ body: '{"status":{"indicator":"none"}}' });
+
+        const result = await prefetchClaudeStatusIfNeeded([[{ id: '1', type: 'claude-status' }]]);
+
+        expect(result).toEqual({ indicator: 'none' });
+        expect(fs.existsSync(path.join(cacheDir, 'claude-status.json'))).toBe(true);
+        expect(fs.existsSync(path.join(homeDir, '.cache', 'ccstatusline'))).toBe(false);
+    });
+
+    it('writes claude-status.lock under CCSTATUSLINE_CACHE_DIR after a failed fetch', async () => {
+        mockStatusPage('unreachable');
+
+        const result = await prefetchClaudeStatusIfNeeded([[{ id: '1', type: 'claude-status' }]]);
+
+        expect(result).toEqual({ error: true });
+        expect(fs.existsSync(path.join(cacheDir, 'claude-status.lock'))).toBe(true);
+        expect(fs.existsSync(path.join(homeDir, '.cache', 'ccstatusline'))).toBe(false);
     });
 });

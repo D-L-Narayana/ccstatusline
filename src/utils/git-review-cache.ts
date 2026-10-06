@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
+import { getCacheDir } from './cache-dir';
 import { parseRemoteUrl } from './git-remote';
 
 export type GitReviewProvider = 'gh' | 'glab';
@@ -153,12 +154,11 @@ const DEFAULT_GIT_REVIEW_CACHE_DEPS: GitReviewCacheDeps = {
     now: Date.now
 };
 
-function getCacheDir(deps: GitReviewCacheDeps): string {
-    return path.join(deps.getHomedir(), '.cache', 'ccstatusline');
-}
-
 function getGitReviewCacheDir(deps: GitReviewCacheDeps): string {
-    return path.join(getCacheDir(deps), 'git-review');
+    // The injected home lookup is routed through the shared resolver, so
+    // CCSTATUSLINE_CACHE_DIR takes precedence while callers that supply their
+    // own getHomedir keep working.
+    return path.join(getCacheDir(deps.getHomedir), 'git-review');
 }
 
 function runGitForCache(args: string[], cwd: string, deps: GitReviewCacheDeps): string {

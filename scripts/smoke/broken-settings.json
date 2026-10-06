@@ -1,0 +1,4 @@
+{
+  "version": 4,
+  "lines": "valid JSON, but `lines` must be an array of widget-item arrays, so --validate must reject this file"
+}
