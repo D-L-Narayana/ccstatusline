@@ -5,8 +5,11 @@
  * Executes dist/ccstatusline.js under Node — the runtime Claude Code and npm users
  * actually run — inside a throwaway home directory, and checks the behaviours a
  * release must not regress: the version flag, a piped status line render, the
- * error paths, the headless CLI flags, and the static-import closure of the entry
- * point (the status line hot path must not load the TUI framework).
+ * error paths, the headless CLI flags (including the `--width` bounds: 1…65535
+ * renders, anything else — including values a number cannot hold exactly — is a
+ * usage error; checked against a flex-separator fixture at the default and at the
+ * largest accepted width), and the static-import closure of the entry point (the
+ * status line hot path must not load the TUI framework).
  *
  *   bun run scripts/smoke-dist.ts [--no-build] [--phase=baseline|all]
  *
@@ -57,15 +60,28 @@ interface SmokeCase {
     run: () => CaseOutcome;
 }
 
+interface RunOptions {
+    /** Text piped to the child's stdin; empty by default. */
+    input?: string;
+    /** Settings file passed with --config; the isolated home's settings.json by default. */
+    configPath?: string;
+}
+
 interface SmokeContext {
     isolated: IsolatedHome;
     packageVersion: string;
-    runDist: (args: string[], input?: string) => RunResult;
+    runDist: (args: string[], options?: RunOptions) => RunResult;
 }
 
 interface StaticClosure {
     files: string[];
     missing: string[];
+}
+
+interface FlexPreview {
+    outcome: CaseOutcome;
+    /** Length of lines[0].plain, or null when the run produced no usable line. */
+    plainLength: number | null;
 }
 
 const USAGE = 'usage: bun run scripts/smoke-dist.ts [--no-build] [--phase=baseline|all]';
@@ -78,6 +94,12 @@ const distDir = path.join(repoRoot, 'dist');
 const distEntry = path.join(distDir, 'ccstatusline.js');
 const payloadPath = path.join(repoRoot, 'scripts', 'payload.example.json');
 const brokenSettingsPath = path.join(repoRoot, 'scripts', 'smoke', 'broken-settings.json');
+const flexSettingsPath = path.join(repoRoot, 'scripts', 'smoke', 'flex-settings.json');
+
+// Largest column count a terminal can report: winsize.ws_col is a 16-bit field,
+// and stty, tput and process.stdout.columns all derive from it. `--width` accepts
+// 1…WIDTH_MAX and treats anything else as a usage error.
+const WIDTH_MAX = 65535;
 
 // Strings that only the bundled TUI framework contains: ink's host config node
 // names and the React runtime's element symbols. The status line hot path must
@@ -96,6 +118,8 @@ const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 const NO_BREAK_SPACE = String.fromCharCode(0xa0);
 const STACK_FRAME_PATTERN = /^\s*at\s+\S/m;
 const HELP_FLAGS = ['--preview', '--validate', '--schema', '--doctor'];
+// What the flex fixture's only line looks like once colors are stripped.
+const FLEX_LINE_PATTERN = /^Left +Right$/;
 
 // Node needs a few more variables than PATH to start on Windows (process.env is
 // case-insensitive there, so one spelling each suffices). Nothing else from the
@@ -304,8 +328,78 @@ function expectJsonObject(result: RunResult, out: CaseOutcome): Record<string, u
     return parsed;
 }
 
+// `--width` values outside 1…WIDTH_MAX, or that a JavaScript number cannot hold
+// exactly, must take the usage-error path: exit 2, nothing on stdout, the flag
+// named on stderr, no stack trace. Unchecked, 310 nines became Infinity and
+// reached the JSON as `"width": null`, 2^53 + 1 was silently rounded to 2^53 (both
+// with exit 0), and 2^53 - 1 crashed the flex renderer with a RangeError (exit 1).
+function expectWidthRejected(result: RunResult): CaseOutcome {
+    const out = newOutcome();
+    expectExit(result, 2, out);
+    expectHandledByCli(result, out);
+    expectStderrIncludes(result, '--width', out);
+    if (result.stdout.trim().length > 0) {
+        const parsed = parseJsonObject(result.stdout);
+        const detail = parsed === null ? excerpt(result.stdout) : `JSON with width=${JSON.stringify(parsed.width)}`;
+        out.failures.push(`stdout must stay empty on a usage error, got ${detail}`);
+    }
+    if (STACK_FRAME_PATTERN.test(result.stderr)) {
+        out.failures.push(`stderr contains a stack trace: ${excerpt(result.stderr)}`);
+    }
+    out.notes.push(`exit=${result.status ?? 'null'}`, `stderr=${excerpt(result.stderr, 120)}`);
+    return out;
+}
+
+// The flex fixture (scripts/smoke/flex-settings.json) is one line: custom text
+// "Left", a flex separator, custom text "Right", flexMode "full". A preview of it
+// returns exactly one untruncated line with "Left" and "Right" at the two ends and
+// only the flex gap between them. The renderer reserves a fixed number of columns
+// with this configuration, so the plain length is not compared with the width
+// here; instead cases n1/n2 require the gap to grow by exactly the width
+// difference between two runs, which proves no cap below WIDTH_MAX exists.
+function expectFlexPreview(result: RunResult, width: number): FlexPreview {
+    const out = newOutcome();
+    expectExit(result, 0, out);
+    expectHandledByCli(result, out);
+    const parsed = expectJsonObject(result, out);
+    if (parsed === null) {
+        return { outcome: out, plainLength: null };
+    }
+
+    if (parsed.width !== width) {
+        out.failures.push(`JSON width is ${JSON.stringify(parsed.width)}, expected ${width}`);
+    }
+
+    const lines: unknown[] | null = Array.isArray(parsed.lines) ? parsed.lines : null;
+    if (lines?.length !== 1) {
+        out.failures.push(`expected exactly one line, got ${lines === null ? 'no lines array' : String(lines.length)}`);
+    }
+
+    const line = lines?.[0];
+    const plain = isRecord(line) ? line.plain : undefined;
+    if (!isRecord(line) || typeof plain !== 'string') {
+        out.failures.push(`JSON lines[0].plain is not a string: ${excerpt(result.stdout)}`);
+        return { outcome: out, plainLength: null };
+    }
+
+    if (!FLEX_LINE_PATTERN.test(plain)) {
+        out.failures.push(`plain text is not "Left", a run of spaces, "Right": ${excerpt(plain, 60)}`);
+    }
+    if (line.wasTruncated !== false) {
+        out.failures.push(`wasTruncated is ${JSON.stringify(line.wasTruncated)}, expected false`);
+    }
+    out.notes.push(`plain.length=${plain.length}`, `wasTruncated=${JSON.stringify(line.wasTruncated)}`);
+    return { outcome: out, plainLength: plain.length };
+}
+
 function buildCases(context: SmokeContext): SmokeCase[] {
     const { isolated, runDist } = context;
+    const runFlexPreview = (width: number): FlexPreview => expectFlexPreview(
+        runDist(['--preview', '--width', String(width), '--json'], { configPath: flexSettingsPath }),
+        width
+    );
+    // Plain-text length of the flex line at width 80, recorded by n1 for n2's gap check.
+    let flexPlainLengthAt80: number | null = null;
 
     return [
         {
@@ -329,7 +423,7 @@ function buildCases(context: SmokeContext): SmokeCase[] {
             phase: 'baseline',
             run: () => {
                 const out = newOutcome();
-                const result = runDist([], fs.readFileSync(payloadPath, 'utf8'));
+                const result = runDist([], { input: fs.readFileSync(payloadPath, 'utf8') });
                 expectExit(result, 0, out);
                 const plain = plainText(result.stdout);
                 if (!plain.includes('Opus 4.6')) {
@@ -352,7 +446,7 @@ function buildCases(context: SmokeContext): SmokeCase[] {
             phase: 'baseline',
             run: () => {
                 const out = newOutcome();
-                const result = runDist([], '{not json');
+                const result = runDist([], { input: '{not json' });
                 expectExit(result, 1, out);
                 expectStderrIncludes(result, 'Error parsing JSON', out);
                 return out;
@@ -364,7 +458,7 @@ function buildCases(context: SmokeContext): SmokeCase[] {
             phase: 'baseline',
             run: () => {
                 const out = newOutcome();
-                const result = runDist([], '');
+                const result = runDist([], { input: '' });
                 expectExit(result, 1, out);
                 expectStderrIncludes(result, 'No input received', out);
                 return out;
@@ -376,7 +470,7 @@ function buildCases(context: SmokeContext): SmokeCase[] {
             phase: 'baseline',
             run: () => {
                 const out = newOutcome();
-                const result = runDist([], '{"context_window":{"context_window_size":"abc"}}');
+                const result = runDist([], { input: '{"context_window":{"context_window_size":"abc"}}' });
                 expectExit(result, 1, out);
                 expectStderrIncludes(result, 'Invalid status JSON format', out);
                 return out;
@@ -434,6 +528,62 @@ function buildCases(context: SmokeContext): SmokeCase[] {
                 }
                 return out;
             }
+        },
+        {
+            id: 'm1',
+            name: '--preview --width rejects a 310-digit (non-finite) width as a usage error',
+            phase: 'all',
+            run: () => expectWidthRejected(runDist(['--preview', '--width', '9'.repeat(310), '--json']))
+        },
+        {
+            id: 'm2',
+            name: '--preview --width rejects an unsafe integer width (2^53 + 1) as a usage error',
+            phase: 'all',
+            run: () => expectWidthRejected(runDist(['--preview', '--width', '9007199254740993', '--json']))
+        },
+        {
+            id: 'n1',
+            name: 'flex fixture: --preview --width 80 --json renders one untruncated Left/Right line',
+            phase: 'all',
+            run: () => {
+                const preview = runFlexPreview(80);
+                flexPlainLengthAt80 = preview.plainLength;
+                return preview.outcome;
+            }
+        },
+        {
+            id: 'n2',
+            name: `flex fixture: --preview --width ${WIDTH_MAX} --json renders the largest accepted width with the gap tracking it`,
+            phase: 'all',
+            run: () => {
+                const preview = runFlexPreview(WIDTH_MAX);
+                const { outcome } = preview;
+                const lengthAt80 = flexPlainLengthAt80;
+                if (preview.plainLength === null || lengthAt80 === null) {
+                    outcome.failures.push('cannot compare the flex gap with the width 80 run (one of the runs produced no line)');
+                    return outcome;
+                }
+
+                const growth = preview.plainLength - lengthAt80;
+                const expectedGrowth = WIDTH_MAX - 80;
+                if (growth !== expectedGrowth) {
+                    outcome.failures.push(`flex gap grew by ${growth} columns from width 80 to ${WIDTH_MAX}, expected ${expectedGrowth}`);
+                }
+                outcome.notes.push(`gap growth=${growth} (expected ${expectedGrowth})`);
+                return outcome;
+            }
+        },
+        {
+            id: 'n3',
+            name: `flex fixture: --preview --width ${WIDTH_MAX + 1} is a usage error`,
+            phase: 'all',
+            run: () => expectWidthRejected(runDist(['--preview', '--width', String(WIDTH_MAX + 1), '--json'], { configPath: flexSettingsPath }))
+        },
+        {
+            id: 'n4',
+            name: 'flex fixture: --preview --width 9007199254740991 (largest safe integer) is a usage error, never a RangeError',
+            phase: 'all',
+            run: () => expectWidthRejected(runDist(['--preview', '--width', '9007199254740991', '--json'], { configPath: flexSettingsPath }))
         },
         {
             id: 'i',
@@ -580,11 +730,13 @@ function main(): number {
     const context: SmokeContext = {
         isolated,
         packageVersion: readPackageVersion(),
-        runDist: (args, input = '') => {
-            const result = spawnSync('node', [distEntry, '--config', isolated.settingsPath, ...args], {
+        runDist: (args, options = {}) => {
+            // The entry point honours the first --config on the command line, so a
+            // fixture must replace the isolated settings path rather than follow it.
+            const result = spawnSync('node', [distEntry, '--config', options.configPath ?? isolated.settingsPath, ...args], {
                 cwd: isolated.home,
                 env: childEnv,
-                input,
+                input: options.input ?? '',
                 encoding: 'utf8',
                 timeout: CHILD_TIMEOUT_MS,
                 maxBuffer: MAX_OUTPUT_BYTES,

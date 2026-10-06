@@ -36,7 +36,10 @@ import {
     isGradientSpec,
     parseGradientSpec
 } from './gradient';
-import { getTerminalWidth } from './terminal';
+import {
+    getTerminalWidth,
+    isTerminalWidth
+} from './terminal';
 import {
     getWidget,
     widgetPreservesColors
@@ -82,6 +85,14 @@ function resolvePaddingSides(padding: string, side: DefaultPaddingSide | undefin
     if (side === 'right')
         return { leading: '', trailing: padding };
     return { leading: padding, trailing: padding };
+}
+
+// Width contract (MAX_TERMINAL_WIDTH): a supplied or probed value that is not a
+// whole number of columns from 1 to 65535 is not a terminal width and is treated
+// as unknown, so no width-sized string is ever built from it.
+function resolveDetectedTerminalWidth(context: RenderContext): number | null {
+    const detectedWidth = context.terminalWidth ?? getTerminalWidth();
+    return detectedWidth !== null && isTerminalWidth(detectedWidth) ? detectedWidth : null;
 }
 
 function resolveEffectiveTerminalWidth(
@@ -189,7 +200,7 @@ function renderPowerlineStatusLine(
     if (filteredWidgets.length === 0)
         return { line: '', wasTruncated: false };
 
-    const detectedWidth = context.terminalWidth ?? getTerminalWidth();
+    const detectedWidth = resolveDetectedTerminalWidth(context);
 
     // Calculate terminal width based on flex mode settings
     const terminalWidth = resolveEffectiveTerminalWidth(detectedWidth, settings, context);
@@ -1086,7 +1097,7 @@ function renderStatusLineInternal(
         return applyColors(text, fgColor, bgColor, shouldBold, colorLevel, dim);
     };
 
-    const detectedWidth = context.terminalWidth ?? getTerminalWidth();
+    const detectedWidth = resolveDetectedTerminalWidth(context);
 
     // Calculate terminal width based on flex mode settings
     const terminalWidth = resolveEffectiveTerminalWidth(detectedWidth, settings, context);

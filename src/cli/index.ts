@@ -1,4 +1,7 @@
-import { getPackageVersion } from '../utils/terminal';
+import {
+    MAX_TERMINAL_WIDTH,
+    getPackageVersion
+} from '../utils/terminal';
 
 import {
     HELP_ALIAS,
@@ -67,7 +70,7 @@ async function runPreviewMode(argv: string[], json: boolean, io: CliIo): Promise
         if (parsed === null) {
             io.stderr(raw === undefined
                 ? 'ccstatusline: --width requires a number of columns\n'
-                : `ccstatusline: --width expects a positive whole number of columns, got "${raw}"\n`);
+                : `ccstatusline: --width expects a whole number of columns from 1 to ${MAX_TERMINAL_WIDTH}, got "${raw}"\n`);
             return handled(EXIT_USAGE);
         }
 

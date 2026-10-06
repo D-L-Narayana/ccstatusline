@@ -31,7 +31,7 @@ export const CLI_OPTIONS: readonly CliOption[] = [
     { flag: '--version', description: 'Print the installed package version and exit' },
     { flag: '--config', argument: '<path>', description: 'Read and write settings at this path instead of ~/.config/ccstatusline/settings.json' },
     { flag: '--preview', description: 'Render the configured status line with sample data and exit' },
-    { flag: '--width', argument: '<columns>', description: 'Terminal width for --preview (default: the detected width)' },
+    { flag: '--width', argument: '<columns>', description: 'Terminal width for --preview, 1-65535 (default: the detected width)' },
     { flag: '--json', description: 'Machine-readable output for --preview and --doctor' },
     { flag: '--validate', argument: '[file]', description: 'Check a config file for problems (default: the active settings file)' },
     { flag: '--schema', argument: '[settings|status-json]', description: 'Print the JSON Schema for settings.json (default) or the Claude Code status JSON' },

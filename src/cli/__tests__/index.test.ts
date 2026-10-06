@@ -228,6 +228,49 @@ describe('runCli', () => {
             expect(result).toEqual({ handled: true, exitCode: 2 });
             expect(io.stderrText()).toContain('--width');
         });
+
+        it('rejects a width JavaScript cannot represent exactly instead of printing null or a rounded value', async () => {
+            writeJsonFile(env.settingsPath, DEFAULT_SETTINGS);
+            // parseInt yields Infinity for the first (JSON "width": null) and a
+            // rounded 9007199254740992 for the second; both must be usage errors.
+            for (const huge of ['9'.repeat(310), '9007199254740993']) {
+                const io = createCapturingIo();
+
+                const result = await runCli(['--preview', '--width', huge, '--json'], io);
+
+                expect(result).toEqual({ handled: true, exitCode: 2 });
+                expect(io.stdoutText()).toBe('');
+                expect(io.stderrText()).toContain('--width');
+            }
+        });
+
+        it('rejects a width above 65535 with exit code 2 instead of a renderer error', async () => {
+            writeJsonFile(env.settingsPath, DEFAULT_SETTINGS);
+            // No terminal reports more than 65535 columns (16-bit ws_col); larger
+            // values only ask the renderer for strings it cannot allocate.
+            for (const tooWide of ['65536', '9007199254740991']) {
+                const io = createCapturingIo();
+
+                const result = await runCli(['--preview', '--width', tooWide, '--json'], io);
+
+                expect(result).toEqual({ handled: true, exitCode: 2 });
+                expect(io.stdoutText()).toBe('');
+                expect(io.stderrText()).toContain('--width');
+                expect(io.stderrText()).toContain(tooWide);
+            }
+        });
+
+        it('accepts the largest terminal width', async () => {
+            writeJsonFile(env.settingsPath, DEFAULT_SETTINGS);
+            const io = createCapturingIo();
+
+            const result = await runCli(['--preview', '--json', '--width', '65535'], io);
+
+            expect(result).toEqual({ handled: true, exitCode: 0 });
+            const parsed = JSON.parse(io.stdoutText()) as { width: number | null; lines: unknown[] };
+            expect(parsed.width).toBe(65535);
+            expect(parsed.lines).toHaveLength(1);
+        });
     });
 
     describe('conflicting modes', () => {

@@ -273,6 +273,62 @@ describe('terminal utils', () => {
         expect(getTerminalWidth()).toBe(160);
     });
 
+    it('accepts the largest width a terminal can report as a CCSTATUSLINE_WIDTH override', () => {
+        process.env.CCSTATUSLINE_WIDTH = '65535';
+
+        expect(getTerminalWidth()).toBe(65535);
+        expect(mockExecFileSync.mock.calls.length).toBe(0);
+    });
+
+    it('ignores a CCSTATUSLINE_WIDTH above the largest terminal width and falls back to probing', () => {
+        pinPosixPlatform();
+        // 65536 cannot come from any terminal (ws_col is 16-bit); treating it as a
+        // width would let the renderer size flex spacing from an impossible value.
+        process.env.CCSTATUSLINE_WIDTH = '65536';
+
+        mockExecFileSync.mockImplementation((file: string, args: string[]) => {
+            if (file === 'ps' && args.join(' ') === `-o ppid= -p ${process.pid}`) {
+                return '1234\n';
+            }
+
+            if (file === 'ps' && args.join(' ') === '-o tty= -p 1234') {
+                return 'ttys001\n';
+            }
+
+            if (file === 'stty' && args.join(' ') === '-F /dev/ttys001 size') {
+                return '24 160\n';
+            }
+
+            throw new Error(`Unexpected command: ${file} ${args.join(' ')}`);
+        });
+
+        expect(getTerminalWidth()).toBe(160);
+    });
+
+    it('ignores a CCSTATUSLINE_WIDTH that a number cannot hold exactly and falls back to probing', () => {
+        pinPosixPlatform();
+        // parseInt turns 310 nines into Infinity; it must not become a width.
+        process.env.CCSTATUSLINE_WIDTH = '9'.repeat(310);
+
+        mockExecFileSync.mockImplementation((file: string, args: string[]) => {
+            if (file === 'ps' && args.join(' ') === `-o ppid= -p ${process.pid}`) {
+                return '1234\n';
+            }
+
+            if (file === 'ps' && args.join(' ') === '-o tty= -p 1234') {
+                return 'ttys001\n';
+            }
+
+            if (file === 'stty' && args.join(' ') === '-F /dev/ttys001 size') {
+                return '24 160\n';
+            }
+
+            throw new Error(`Unexpected command: ${file} ${args.join(' ')}`);
+        });
+
+        expect(getTerminalWidth()).toBe(160);
+    });
+
     it('CCSTATUSLINE_WIDTH override applies on Windows where probing is disabled', () => {
         setPlatform('win32');
         process.env.CCSTATUSLINE_WIDTH = '180';

@@ -27,6 +27,7 @@ import {
     getVisibleWidth
 } from '../../utils/ansi';
 import { updateColorMap } from '../../utils/colors';
+import { MAX_TERMINAL_WIDTH } from '../../utils/terminal';
 import {
     parsePreviewWidth,
     runPreview,
@@ -227,6 +228,29 @@ describe('parsePreviewWidth', () => {
     it('rejects everything else', () => {
         const rejected = [undefined, '', '0', '-5', '80.5', 'abc', '80px', '1e3'];
         const accepted = rejected.filter(raw => parsePreviewWidth(raw) !== null);
+
+        expect(accepted).toEqual([]);
+    });
+
+    it('accepts the largest width a terminal can report', () => {
+        expect(parsePreviewWidth('65535')).toBe(65535);
+        expect(parsePreviewWidth(String(MAX_TERMINAL_WIDTH))).toBe(MAX_TERMINAL_WIDTH);
+    });
+
+    it('rejects widths above the largest terminal width', () => {
+        // ws_col is a 16-bit field, so no terminal can report more than 65535
+        // columns; anything larger would only size strings no renderer can build.
+        const tooWide = ['65536', '100000', String(Number.MAX_SAFE_INTEGER)];
+        const accepted = tooWide.filter(raw => parsePreviewWidth(raw) !== null);
+
+        expect(accepted).toEqual([]);
+    });
+
+    it('rejects digit strings that cannot be represented exactly', () => {
+        // parseInt turns these into Infinity (which JSON prints as null) or a
+        // silently rounded neighbour; neither is the number the user typed.
+        const unrepresentable = ['9'.repeat(310), '9007199254740993', '9007199254740992'];
+        const accepted = unrepresentable.filter(raw => parsePreviewWidth(raw) !== null);
 
         expect(accepted).toEqual([]);
     });

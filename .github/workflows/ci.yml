@@ -4,6 +4,8 @@ on:
   push:
   pull_request:
     branches: [main]
+  # Manual fallback: runs the exact same jobs when no automatic event fires.
+  workflow_dispatch:
 
 jobs:
   lint:

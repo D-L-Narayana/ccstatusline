@@ -8,7 +8,10 @@ import {
     loadSettings
 } from '../utils/config';
 import { renderLines } from '../utils/render-lines';
-import { getTerminalWidth } from '../utils/terminal';
+import {
+    getTerminalWidth,
+    isTerminalWidth
+} from '../utils/terminal';
 
 import type { CliIo } from './io';
 
@@ -34,7 +37,13 @@ export interface PreviewJson {
     lines: PreviewJsonLine[];
 }
 
-/** Parses a `--width` value: a positive whole number of columns, or null. */
+/**
+ * Parses a `--width` value: a whole number of columns from 1 to
+ * MAX_TERMINAL_WIDTH (65535), or null. A terminal reports its width through a
+ * 16-bit field (`winsize.ws_col`), so no real terminal is wider; larger digit
+ * strings — including ones parseInt would round or turn into Infinity — are
+ * rejected as usage errors instead of sizing strings the renderer cannot build.
+ */
 export function parsePreviewWidth(raw: string | undefined): number | null {
     if (raw === undefined) {
         return null;
@@ -46,7 +55,7 @@ export function parsePreviewWidth(raw: string | undefined): number | null {
     }
 
     const width = Number.parseInt(trimmed, 10);
-    return width > 0 ? width : null;
+    return isTerminalWidth(width) ? width : null;
 }
 
 /**

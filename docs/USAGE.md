@@ -36,12 +36,12 @@ ccstatusline is scriptable without the TUI. Every flag below works with the `npx
 | `--help`, `-h` | Print the flag reference and exit | `0` |
 | `--version` | Print the installed package version and exit; runs before any other mode | `0` |
 | `--config <path>` | Load and save settings from a custom file instead of `~/.config/ccstatusline/settings.json` | — |
-| `--preview [--width <columns>] [--json]` | Render the configured status line from your settings without Claude Code input | `0` |
+| `--preview [--width <columns>] [--json]` | Render the configured status line from your settings without Claude Code input | `0`; `2` when `--width` is not a whole number from `1` to `65535` |
 | `--validate [file]` | Validate the active settings file, or a config export, and report every schema issue plus the shell commands and hyperlinks the config contains | `0` valid, `1` invalid, `2` unreadable |
 | `--schema [settings\|status-json]` | Print the JSON Schema (draft 2020-12) for `settings.json` (default) or for the Claude Code status JSON that ccstatusline reads from stdin | `0` |
 | `--doctor [--json]` | Print diagnostics about the installation and environment | `0` |
 
-`--width` only takes effect together with `--preview`, and `--json` applies to `--preview` and `--doctor`. The headless modes are exclusive: asking for two at once (for example `--schema --doctor`) prints an error to stderr and exits with code `2`, while `--help` always wins so you can ask for help from any command line. `--hook` (used by Claude Code hook installations) and the internal Git review cache refresh flag keep their existing behavior.
+`--width` only takes effect together with `--preview` and must be a whole number of columns from `1` to `65535` — the largest width any terminal can report, because the operating system stores a terminal's column count in a 16-bit field; `0`, negative, fractional, non-numeric, or larger values print an error to stderr and exit with code `2` without rendering, never a rounded or `null` width and never a renderer error. `--json` applies to `--preview` and `--doctor`. The headless modes are exclusive: asking for two at once (for example `--schema --doctor`) prints an error to stderr and exits with code `2`, while `--help` always wins so you can ask for help from any command line. `--hook` (used by Claude Code hook installations) and the internal Git review cache refresh flag keep their existing behavior.
 
 ### Preview
 
@@ -181,7 +181,7 @@ If ccstatusline cannot detect your terminal width, set `CCSTATUSLINE_WIDTH` to a
 CCSTATUSLINE_WIDTH=160 ccstatusline
 ```
 
-The override is checked before automatic width detection, so it also works in wrapper processes, IDE integrations, nested PTYs, and Windows environments where probing may be unavailable. Invalid values such as `0`, negative numbers, or non-numeric strings are ignored and ccstatusline falls back to normal detection.
+The override is checked before automatic width detection, so it also works in wrapper processes, IDE integrations, nested PTYs, and Windows environments where probing may be unavailable. Invalid values such as `0`, negative numbers, non-numeric strings, or numbers above `65535` (the largest width a terminal can report) are ignored and ccstatusline falls back to normal detection.
 
 On Linux, width detection first uses `/proc` and the terminal device directly, avoiding subprocesses when that probe succeeds. Portable `ps`/`stty`/`tput` fallbacks run without shell wrappers. A probe result is reused throughout one render. If no width is found, that result can also be cached for the same session across renders (default: 5 seconds); a detected width is always re-probed on the next render so resizes take effect immediately. Adjust **Terminal Width Cache TTL** under **Configure Status Line**, or set `terminalWidthCacheTtlSeconds` to `0-300` in `settings.json`; `0` disables the cache across renders.
 

@@ -38,6 +38,21 @@ export function getPackageVersion(): string {
     return '';
 }
 
+/**
+ * Largest width any terminal can report: `winsize.ws_col` is a 16-bit field, so
+ * `stty size`, `tput cols` and `process.stdout.columns` can never exceed it. A
+ * value outside 1…MAX_TERMINAL_WIDTH is not a terminal width — the CLI rejects
+ * it as a usage error, the CCSTATUSLINE_WIDTH override ignores it, and the
+ * renderer treats it as an unknown width — so no width-sized string is ever
+ * built from it.
+ */
+export const MAX_TERMINAL_WIDTH = 65535;
+
+/** True when `width` is a whole number of columns a terminal can actually have. */
+export function isTerminalWidth(width: number): boolean {
+    return Number.isInteger(width) && width >= 1 && width <= MAX_TERMINAL_WIDTH;
+}
+
 function probeTerminalWidth(): number | null {
     // Preserve historical behavior on Windows: width detection is unavailable.
     // This avoids Unix fallback command behavior (e.g. 2>/dev/null) on Windows.
@@ -201,8 +216,11 @@ export function getTerminalWidth(options?: TerminalWidthOptions): number | null 
     // bypasses probing. Memoize it for subsequent calls in this render.
     const overrideRaw = process.env.CCSTATUSLINE_WIDTH;
     if (overrideRaw) {
+        // Values no terminal can report (0, negative, non-numeric, above
+        // MAX_TERMINAL_WIDTH, or beyond what a number holds exactly) are ignored
+        // and detection proceeds, so nothing downstream is sized from them.
         const override = parsePositiveInteger(overrideRaw);
-        if (override !== null) {
+        if (override !== null && isTerminalWidth(override)) {
             cachedWidth = override;
             hasProbed = true;
             return cachedWidth;
